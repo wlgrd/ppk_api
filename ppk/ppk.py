@@ -127,6 +127,8 @@ class API():
         self.finished = False
         self.m_vdd = 3000
         self.connected = False
+        self.read_mode = MODE_RECV
+        self.data_buffer = []
 
     def _get_metadata(self, rttdata):
         self.log("Metadata: " + rttdata)
@@ -142,6 +144,7 @@ class API():
         return(result[1:13])
 
     def log(self, logstring):
+        pass
         if (self.logprint == True):
             print("PPK: %s" % str(logstring))
 
@@ -237,11 +240,10 @@ class API():
         self.log("Starting average measurement...")
         self.write_stuffed([RTT_COMMANDS.RTT_CMD_RUN])
 
-
-
     def average_measurement_stop(self):
         self.log("Stopping average measurement")
         self.write_stuffed([RTT_COMMANDS.RTT_CMD_STOP])
+        self.clear_measurement_data(self.DATA_TYPE_AVERAGE)
 
     def vdd_set(self, vdd):
         self.log("Setting VDD to %d" %vdd)
@@ -325,37 +327,32 @@ class API():
 
     def _stream_handler(self, data):
         """ Function called when data ready on RTT
-            Should not be used externally
         """
-        adc_val = 0
-        print("Stream: ",)
-        print(data)
-        # print (data)
-        # print (type(data))
-        # If data length == 4, the data comes from the average data set
+        # adc_val = 0
         if (len(data) == 4):
+            # print('average received')
             s = ''.join([chr(b) for b in data])
-            # print(s)
 
             f = struct.unpack('f', bytearray(data))[0]
-            # print (type(f))
-            # print (f)
-            # f = struct.unpack('>f', s)[0]
             if math.isnan(f):
                 self.log("Test failed, no data received from board")
                 raise PPKError("Got invalid data from average set")
             self.average_data_handler(f)
-        if (len(data) == 5):
-            print("timestamp received: " + data)
 
-        else:
-            print("===================trigger======================")
-            for i in range(0, len(data), 2):
-                if (i + 1) < len(data):
-                    tmp = np.uint16((data[i + 1] << 8) + data[i])
-                    self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
-                    adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
-                    self.trigger_data_handler(adc_val, self.current_meas_range)
+        # elif (len(data) == 5):
+        #     print("timestamp received: " + data)
+
+        # elif (len(data) == 6):
+        #     print("timestamp received: " + data)
+
+        # else:
+        #     print("===================trigger======================")
+        #     for i in range(0, len(data), 2):
+        #         if (i + 1) < len(data):
+        #             tmp = np.uint16((data[i + 1] << 8) + data[i])
+        #             self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
+        #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
+        #             self.trigger_data_handler(adc_val, self.current_meas_range)
 
 
 
@@ -425,42 +422,40 @@ class API():
         self.read_thread.setDaemon(True)
         self.read_thread.start()
 
+    def handleBytes(self, byte):
+        # print('Handle byte: ' + str(byte))
+        
+        if self.read_mode == MODE_RECV:
+            ''' Mode Receiving - Receiving data '''
+            if byte == ESC:
+                # print('escape received')
+                self.read_mode = MODE_ESC_RECV
+            elif byte == ETX:
+                # print('etx received')
+                self._stream_handler(self.data_buffer)
+                self.data_buffer[:] = []
+                self.read_mode = MODE_RECV
+            else:
+                # print('append byte')
+                self.data_buffer.append(byte)
+
+        elif self.read_mode == MODE_ESC_RECV:
+            ''' Mode Escape Received - Convert next byte '''
+            # print('escing byte')
+            self.data_buffer.append(byte ^ 0x20)
+            self.read_mode = MODE_RECV
+
     def t_read(self):
         try:
-            self.read_mode = MODE_IDLE
-            data_buffer = []
-            while (self.alive):
-                # try:
-                    # print(self.nrfjprog.is_connected_to_emu())
-                    # print(self.nrfjprog.is_connected_to_device())
+            while (True):
                 data = self.nrfjprog.rtt_read(0, 100, encoding=None)
-
                 if data != '':
                     for byte in data:
-                        n = byte
-                        if self.read_mode == MODE_IDLE:
-                            ''' Mode Idle - Not Receiving '''
-                            if n == STX:
-                                self.read_mode = MODE_RECV
+                        # print('RAW: ' + str(byte))
+                        self.handleBytes(byte)
 
-                        elif self.read_mode == MODE_RECV:
-                            ''' Mode Receiving - Receiving data '''
-                            if n == ESC:
-                                self.read_mode = MODE_ESC_RECV
-                            elif n == ETX:
-                                self._stream_handler(data_buffer)
-                                data_buffer[:] = []
-                                self.read_mode = MODE_IDLE
-                            elif n == STX:
-                                data_buffer[:] = []
-                            else:
-                                data_buffer.append(n)
-
-                        elif self.read_mode == MODE_ESC_RECV:
-                            ''' Mode Escape Received - Convert next byte '''
-                            data_buffer.append(n ^ 0x20)
-                            self.read_mode = MODE_RECV
-        except Exception as e:
+                        
+        except Exception:
             pass
             self.alive = False
 
