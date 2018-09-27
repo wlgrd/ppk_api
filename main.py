@@ -20,7 +20,7 @@ smu_enabled = False
 write_firmware = False
 
 # Time to measure in seconds
-measurement_time = 120
+measurement_time = 3
 
 board_id = None
 m_time = 0
@@ -57,7 +57,7 @@ if(write_firmware):
         rtt.write(segment.address, segment.data, True)
     print("Flashed!") 
 
-ppk = ppkapi(rtt, logprint=True)
+ppk = ppkapi(rtt, logprint=False)
 ppk.connect()
 ppk.vdd_set(3000)
 ppk.clear_user_resistors()
@@ -78,7 +78,7 @@ ppk.measurement_readout_start()
 while(m_time < measurement_time):
     time.sleep(1)
     m_time += 1
-    print(" Remaining time: {:.0f}".format(measurement_time-m_time),end='\r')
+    print(" Remaining time: {:d}".format(measurement_time-m_time),end='\r')
 
 # Omit first 500 samples to avoid any jitter errors on startup.
 result = ppk.avg_buffer[500:]

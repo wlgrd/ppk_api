@@ -248,8 +248,6 @@ class API():
     def vdd_set(self, vdd):
         self.log("Setting VDD to %d" %vdd)
         target_vdd = vdd
-        print (target_vdd)
-        print (self.m_vdd)
         while (self.m_vdd != target_vdd):
             if (target_vdd > self.m_vdd):
                 new = self.m_vdd + 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
