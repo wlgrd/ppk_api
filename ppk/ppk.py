@@ -71,19 +71,12 @@ def debug_print(line):
 
 
 class PPKError(Exception):
-    """
-    PPK exception class, inherits from the built-in Exception class.
-
-    """
+    """PPK exception class, inherits from the built-in Exception class."""
 
     def __init__(self, error=None):
-        """
-        Constructs a new object and sets the error.
-        """
+        """Constructs a new object and sets the error."""
         self.error = error
         err_str = 'PPK error: {}'.format(self.error)
-
-
         Exception.__init__(self, err_str)
 
 class RTTCommands():
@@ -196,7 +189,6 @@ class API():
     def rtt_stop(self):
         self.nrfjprog.rtt_stop()
 
-
     def reset_connection(self):
         self.nrfjprog.rtt_stop()
         self.nrfjprog.sys_reset()
@@ -228,7 +220,6 @@ class API():
                             buffer_size_high, buffer_size_low])
         self.log("Set acqusition time %d (buffer size:%d)" %
                  (acqtime, self.trigger_buffer_size))
-
 
     def trigger_value_set(self, trigger):
         """ Set the trigger value in uA
@@ -373,14 +364,11 @@ class API():
         #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
         #             self.trigger_data_handler(adc_val, self.current_meas_range)
 
-
-
     def average_data_handler(self, data):
         """ Gets called when average data is available
 
             @int data   Average sample in microamps
         """
-
         self.measurement_data_callback(data, self.DATA_TYPE_AVERAGE)
 
     def trigger_data_handler(self):
@@ -407,7 +395,6 @@ class API():
             elif self.current_meas_range == MEAS_RANGE_NONE:
                 self.log("Range not detected")
             self.trigger_buffer.append(sample_ua)
-
 
     def write_stuffed(self, cmd):
         """Addes escape characters to cmd and then writes it to RTT."""
