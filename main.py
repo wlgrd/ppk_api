@@ -1,11 +1,8 @@
 """
-Not at all completed, but working for average measurements.
-Instructions:
-    1. SMU_ENABLED should be False in almost any case
-    2. WRITE_FIRMWARE should be set to True only if you don't have the PPK with proper firmware
-    3. MEASUREMENT_TIME: set this to the number of seconds you need to measure.
-
-The script will spit out the average value after the number of seconds set.
+TODO: Verify the PPK firmware and exit if it fails unless a --f is provided.
+      For printing an average lets have a configurable delay and sample length
+      For trigger we should have voltage and sample length.
+      Stretch goal is to have an option for outputting a png graph.
 """
 import time
 
@@ -14,9 +11,6 @@ import numpy as np
 from ppk.ppk import API as ppkapi
 from pynrfjprog import API, Hex
 
-
-# Draining current with SMU2450? Just keep False if you don't know what this is.
-SMU_ENABLED = False
 
 # Flash the board?
 WRITE_FIRMWARE = False
@@ -44,22 +38,6 @@ def _main():
     board_id = None
     m_time = 0
 
-    if SMU_ENABLED:
-        from smu.SMU2450 import API as smuAPI
-
-        smu = smuAPI()
-
-        if smu.discover_and_connect() is False:
-            print('Test failed, no device found')
-
-        print("Connected!")
-
-        smu.write('SENS:FUNC "VOLT"')
-        smu.output_disable()
-        smu.set_source_current()
-        smu.set_current_drain_microamp(0)
-        smu.output_enable()
-
     rtt = API.API('NRF52')
     rtt.open()
     rtt.connect_to_emu_without_snr()
@@ -78,10 +56,6 @@ def _main():
     board_id = ppk.get_connected_board_id()
     print("PPK Board ID: " + board_id)
 
-    if SMU_ENABLED:
-        smu.set_current_drain_microamp(10)
-        time.sleep(0.5)
-
     ppk.average_measurement_start()
     ppk.measurement_readout_start()
 
@@ -96,9 +70,6 @@ def _main():
 
     print('Average result:')
     print(np.average(result))
-
-    if SMU_ENABLED:
-        smu.output_disable()
 
     rtt.disconnect_from_emu()
     rtt.close()

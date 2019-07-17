@@ -6,7 +6,7 @@ import math
 import threading
 
 
-DEBUG = False
+DEBUG = True
 
 SAMPLE_INTERVAL_US = 13e-6
 SAMPLE_INTERVAL_MS = 13e-3
