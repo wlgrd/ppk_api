@@ -122,8 +122,8 @@ def _main():
     ppk_api.clear_user_resistors()
     ppk_api.average_measurement_stop()
 
-    if args.trigger:
-        _set_trigger(ppk_api, args.trigger)
+    if args.trigger_voltage:
+        _set_trigger(ppk_api, args.trigger_voltage)
 
     if args.average:
         _measure_avg(ppk_api, args.average)

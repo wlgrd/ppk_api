@@ -6,8 +6,6 @@ import math
 import threading
 
 
-DEBUG = True
-
 SAMPLE_INTERVAL_US = 13e-6
 SAMPLE_INTERVAL_MS = 13e-3
 
@@ -40,34 +38,8 @@ MEAS_RANGE_MSK = (3 << 14)
 MEAS_ADC_POS = 0
 MEAS_ADC_MSK = 0x3FFF
 
-NRF_EGU0_BASE = 0x40014000
-TASKS_TRIGGER0_OFFSET = 0
-TASKS_TRIGGER1_OFFSET = 4
-TASKS_TRIGGER2_OFFSET = 8
-TASKS_TRIGGER3_OFFSET = 12
-TASKS_TRIGGER4_OFFSET = 16
-TASKS_TRIGGER5_OFFSET = 20
-TASKS_TRIGGER6_OFFSET = 24
-TASKS_TRIGGER7_OFFSET = 28
-TASKS_TRIGGER8_OFFSET = 32
-TASKS_TRIGGER9_OFFSET = 36
-TASKS_TRIGGER10_OFFSET = 40
-TASKS_TRIGGER11_OFFSET = 44
-TASKS_TRIGGER12_OFFSET = 48
-TASKS_TRIGGER13_OFFSET = 52
-TASKS_TRIGGER14_OFFSET = 56
-TASKS_TRIGGER15_OFFSET = 60
-
 VDD_SET_MIN = 2100
 VDD_SET_MAX = 3600
-
-
-def debug_print(line):
-    """Selective print function."""
-    if DEBUG:
-        print(line)
-    else:
-        pass
 
 
 class PPKError(Exception):
@@ -79,26 +51,30 @@ class PPKError(Exception):
         err_str = 'PPK error: {}'.format(self.error)
         Exception.__init__(self, err_str)
 
-class RTTCommands():
-    """Simple container for RTT command opcodes."""
-    RTT_CMD_TRIGGER_SET = 0x01 # following trigger of type int16
-    RTT_CMD_AVG_NUM_SET = 0x02 # Number of samples x16 to average over
-    RTT_CMD_TRIG_WINDOW_SET = 0x03 # following window of type unt16
-    RTT_CMD_TRIG_INTERVAL_SET = 0x04 #
-    RTT_CMD_SINGLE_TRIG = 0x05
-    RTT_CMD_RUN = 0x06
-    RTT_CMD_STOP = 0x07
-    RTT_CMD_RANGE_SET = 0x08
-    RTT_CMD_LCD_SET = 0x09
-    RTT_CMD_TRIG_STOP = 0x0A
-    RTT_CMD_CALIBRATE_OFFSET = 0x0B
-    RTT_CMD_DUT = 0x0C
-    RTT_CMD_SETVDD = 0x0D
-    RTT_CMD_SETVREFLO = 0x0E
-    RTT_CMD_SETVREFHI = 0x0F
-    RTT_CMD_SET_RES = 0x10
-    RTT_CMD_CLEAR_RES_USER = 0x13
-    RTT_CMD_CLEAR_RES_CAL = 0x14
+
+class RTTCommand():
+    """RTT command opcodes."""
+    # NOTE: Not implemented as an Enum because these values
+    #       need to be treated as bytes.
+    TRIGGER_SET = 0x01 # following trigger of type int16
+    AVG_NUM_SET = 0x02 # Number of samples x16 to average over
+    TRIG_WINDOW_SET = 0x03 # following window of type unt16
+    TRIG_INTERVAL_SET = 0x04 #
+    SINGLE_TRIG = 0x05
+    RUN = 0x06
+    STOP = 0x07
+    RANGE_SET = 0x08
+    LCD_SET = 0x09
+    TRIG_STOP = 0x0A
+    CALIBRATE_OFFSET = 0x0B
+    DUT = 0x0C
+    SETVDD = 0x0D
+    SETVREFLO = 0x0E
+    SETVREFHI = 0x0F
+    SET_RES = 0x10
+    CLEAR_RES_USER = 0x13
+    CLEAR_RES_CAL = 0x14
+
 
 class API():
     """
@@ -196,17 +172,17 @@ class API():
         self.nrfjprog.rtt_start()
         while not self.nrfjprog.rtt_is_control_block_found:
             continue
-        self.write_stuffed([RTTCommands.RTT_CMD_RUN])
-        self.write_stuffed([RTTCommands.RTT_CMD_AVG_NUM_SET, 0x00, 1])
+        self.write_stuffed([RTTCommand.RUN])
+        self.write_stuffed([RTTCommand.AVG_NUM_SET, 0x00, 1])
         return True
 
     def dut_power_on(self):
         self.log("DUT power on")
-        self.write_stuffed([RTTCommands.RTT_CMD_DUT, 1])
+        self.write_stuffed([RTTCommand.DUT, 1])
 
     def dut_power_off(self):
         self.log("DUT power off")
-        self.write_stuffed([RTTCommands.RTT_CMD_DUT, 0])
+        self.write_stuffed([RTTCommand.DUT, 0])
 
     def trigger_acquisition_time_set(self, acqtime):
         """ Set the acquisition window in ms
@@ -216,7 +192,7 @@ class API():
         self.trigger_buffer_size = int(acqtime/SAMPLE_INTERVAL_MS + 1)
         buffer_size_high = (self.trigger_buffer_size >> 8) & 0xFF
         buffer_size_low = self.trigger_buffer_size & 0xFF
-        self.write_stuffed([RTTCommands.RTT_CMD_TRIG_WINDOW_SET,
+        self.write_stuffed([RTTCommand.TRIG_WINDOW_SET,
                             buffer_size_high, buffer_size_low])
         self.log("Set acqusition time %d (buffer size:%d)" %
                  (acqtime, self.trigger_buffer_size))
@@ -228,11 +204,11 @@ class API():
         high = (trigger >> 16) & 0xFF
         mid = (trigger >> 8) & 0xFF
         low = trigger & 0xFF
-        self.write_stuffed([RTTCommands.RTT_CMD_TRIGGER_SET, high, mid, low])
+        self.write_stuffed([RTTCommand.TRIGGER_SET, high, mid, low])
         self.log("Trigger set to %d" % trigger)
 
     def trigger_stop(self):
-        self.write_stuffed([RTTCommands.RTT_CMD_TRIG_STOP])
+        self.write_stuffed([RTTCommand.TRIG_STOP])
 
     def average_acquisition_time_set(self, milliseconds=0):
         """ Set the aquisition time in milliseconds
@@ -245,11 +221,11 @@ class API():
 
     def average_measurement_start(self):
         self.log("Starting average measurement...")
-        self.write_stuffed([RTTCommands.RTT_CMD_RUN])
+        self.write_stuffed([RTTCommand.RUN])
 
     def average_measurement_stop(self):
         self.log("Stopping average measurement")
-        self.write_stuffed([RTTCommands.RTT_CMD_STOP])
+        self.write_stuffed([RTTCommand.STOP])
         self.clear_measurement_data(self.DATA_TYPE_AVERAGE)
 
     def vdd_set(self, vdd):
@@ -267,7 +243,7 @@ class API():
                 new = self.m_vdd - 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
             vdd_high_byte = new >> 8
             vdd_low_byte = new & 0xFF
-            self.write_stuffed([RTTCommands.RTT_CMD_SETVDD, vdd_high_byte, vdd_low_byte])
+            self.write_stuffed([RTTCommand.SETVDD, vdd_high_byte, vdd_low_byte])
             self.m_vdd = new
             self.log("VDD set")
 
@@ -278,11 +254,11 @@ class API():
                 time.sleep(0.25)
 
     def clear_user_resistors(self):
-        self.write_stuffed([RTTCommands.RTT_CMD_CLEAR_RES_USER])
+        self.write_stuffed([RTTCommand.CLEAR_RES_USER])
 
     def clear_cal_resistors(self):
         print("Clearing calibration resistors")
-        self.write_stuffed([RTTCommands.RTT_CMD_CLEAR_RES_CAL])
+        self.write_stuffed([RTTCommand.CLEAR_RES_CAL])
 
     def write_new_resistors(self, resistors):
         """
@@ -314,7 +290,7 @@ class API():
             r3_list.append(b)
 
         # Write the floats to PPK
-        self.write_stuffed([RTTCommands.RTT_CMD_SET_RES,
+        self.write_stuffed([RTTCommand.SET_RES,
                             (r1_list[0]), (r1_list[1]), (r1_list[2]), (r1_list[3]),
                             (r2_list[0]), (r2_list[1]), (r2_list[2]), (r2_list[3]),
                             (r3_list[0]), (r3_list[1]), (r3_list[2]), (r3_list[3])
@@ -402,16 +378,16 @@ class API():
             buf = []
             buf.append(STX)
             for byte in cmd:
-                if byte == STX or byte == ETX or byte == ESC:
+                if byte in (STX, ETX, ESC):
                     buf.append(ESC)
                     buf.append(byte ^ 0x20)
                 else:
                     buf.append(byte)
             buf.append(ETX)
             try:
-                debug_print("rtt write initiated")
+                print("rtt write initiated")
                 self.nrfjprog.rtt_write(0, buf, encoding=None)
-                debug_print("rtt write finished")
+                print("rtt write finished")
             except Exception as ex:
                 print("Failed write")
                 raise ex
