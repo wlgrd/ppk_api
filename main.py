@@ -11,51 +11,52 @@ import argparse
 
 import numpy as np
 
-from ppk.ppk import API as ppkapi
+from ppk import ppk
+import pynrfjprog
 from pynrfjprog import API, Hex
 
 
 HEX_FILE_PATH = os.path.sep.join((".", "hex", "ppk_nrfconnect.hex"))
 
 
-def _verify_firmware(nrfjprog, fw_hex):
+def _verify_firmware(nrfjprog_api, fw_hex):
     """"""
     for segment in fw_hex:
-        content = nrfjprog.read(segment.address, len(segment.data))
+        content = nrfjprog_api.read(segment.address, len(segment.data))
         if segment.data != content:
             return False
     return True
 
 
-def _write_firmware(nrfjprog, fw_hex):
+def _write_firmware(nrfjprog_api, fw_hex):
     """Replaces the PPK's firmware."""
     print("Replacing PPK firmware...", end='')
-    nrfjprog.erase_all()
+    nrfjprog_api.erase_all()
     for segment in fw_hex:
-        nrfjprog.write(segment.address, segment.data, True)
+        nrfjprog_api.write(segment.address, segment.data, True)
     print("done")
 
 
-def _close_and_exit(nrfjprog, status):
+def _close_and_exit(nrfjprog_api, status):
     """"""
-    nrfjprog.disconnect_from_emu()
-    nrfjprog.close()
+    nrfjprog_api.disconnect_from_emu()
+    nrfjprog_api.close()
     sys.exit(status)
 
 
-def _measure_avg(ppk, time_s):
+def _measure_avg(ppk_api, time_s):
     """Prints the average current over the specified amount of time."""
     board_id = None
     m_time = 0
 
-    ppk.average_measurement_start()
+    ppk_api.average_measurement_start()
 
     # TODO: This is suspicious. Maybe it's just a delay?
-    board_id = ppk.get_connected_board_id()
+    board_id = ppk_api.get_connected_board_id()
     print("PPK Board ID: " + board_id)
 
-    ppk.average_measurement_start()
-    ppk.measurement_readout_start()
+    ppk_api.average_measurement_start()
+    ppk_api.measurement_readout_start()
 
     while m_time < time_s:
         time.sleep(1)
@@ -63,59 +64,70 @@ def _measure_avg(ppk, time_s):
         print(" Remaining time: {:d}".format(time_s-m_time), end='\r')
 
     # Omit first 500 samples to avoid any jitter errors on startup.
-    result = ppk.avg_buffer[500:]
-    ppk.average_measurement_stop()
+    result = ppk_api.avg_buffer[500:]
+    ppk_api.average_measurement_stop()
 
     print('Average result:')
     print(np.average(result))
 
 
+def _set_trigger(ppk_api, voltage):
+    """Prints the average current after the trigger voltage is reached."""
+    pass
+
+
 def _main():
-    """Connects to a PPK and prints the average current."""
+    """Parses arguments for the PPK CLI."""
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--force",
                         help="program the PPK firmware if necessary",
                         action="store_true")
-    parser.add_argument("-id", "--serial_number", type=int,
+    parser.add_argument("-s", "--serial_number", type=int,
                         help="serial number of J-Link")
     parser.add_argument("-a", "--average", type=int,
                         help="print average current over time")
     parser.add_argument("-t", "--trigger_voltage", type=int,
                         help="print average current after trigger")
+    parser.add_argument("-v", "--vdd", type=int,
+                        help="set external regulator voltage [2100, 3600]")
     args = parser.parse_args()
-
-    if args.trigger_voltage:
-        print("Print trigger!")
-
-    if args.average:
-        print("Print average!")
 
     if not args.trigger_voltage and not args.average:
         parser.print_usage()
         sys.exit(-1)
 
-    nrfjprog = API.API('NRF52')
-    nrfjprog.open()
-    nrfjprog.connect_to_emu_without_snr()
+    nrfjprog_api = pynrfjprog.API.API('NRF52')
+    nrfjprog_api.open()
+    nrfjprog_api.connect_to_emu_without_snr()
 
-    fw_hex = Hex.Hex(HEX_FILE_PATH)
-    if not _verify_firmware(nrfjprog, fw_hex):
+    fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
+    if not _verify_firmware(nrfjprog_api, fw_hex):
         if args.force:
-            _write_firmware(nrfjprog, fw_hex)
+            _write_firmware(nrfjprog_api, fw_hex)
         else:
             print("PPK firmware verification failed. Use -f option to replace it.")
-            _close_and_exit(nrfjprog, -1)
+            _close_and_exit(nrfjprog_api, -1)
 
-    ppk = ppkapi(nrfjprog, logprint=False)
-    ppk.connect()
-    ppk.vdd_set(3000)
-    ppk.clear_user_resistors()
-    ppk.average_measurement_stop()
+    ppk_api = ppk.API(nrfjprog_api, logprint=False)
+    ppk_api.connect()
+
+    if args.vdd:
+        if args.vdd < ppk.VDD_SET_MIN or args.vdd > ppk.VDD_SET_MAX:
+            print("Invalid external voltage regulator value (%d)." % args.vdd)
+            _close_and_exit(nrfjprog_api, -1)
+        else:
+            ppk_api.vdd_set(args.vdd)
+
+    ppk_api.clear_user_resistors()
+    ppk_api.average_measurement_stop()
+
+    if args.trigger:
+        _set_trigger(ppk_api, args.trigger)
 
     if args.average:
-        _measure_avg(ppk, args.average)
+        _measure_avg(ppk_api, args.average)
 
-    _close_and_exit(nrfjprog, 0)
+    _close_and_exit(nrfjprog_api, 0)
 
 
 if __name__ == "__main__":
