@@ -1,6 +1,7 @@
 """
-TODO: Verify the PPK firmware and exit if it fails unless a --f is provided.
-      For printing an average lets have a configurable delay and sample length
+Simple CLI for working with the Nordic Power Profiler Kit.
+
+TODO: For printing an average lets have a configurable delay and sample length
       For trigger we should have voltage and sample length.
       Stretch goal is to have an option for outputting a png graph.
 """
