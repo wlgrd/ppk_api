@@ -17,24 +17,21 @@ from pynrfjprog import API, Hex
 
 HEX_FILE_PATH = os.path.sep.join((".", "hex", "ppk_nrfconnect.hex"))
 
-# Flash the board?
-WRITE_FIRMWARE = False
 
-
-def _verify_firmware(nrfjprog, fw):
+def _verify_firmware(nrfjprog, fw_hex):
     """"""
-    for segment in fw:
+    for segment in fw_hex:
         content = nrfjprog.read(segment.address, len(segment.data))
-        if not segment.data == content:
+        if segment.data != content:
             return False
     return True
 
 
-def _write_firmware(nrfjprog, fw):
+def _write_firmware(nrfjprog, fw_hex):
     """Replaces the PPK's firmware."""
     print("Replacing PPK firmware...", end='')
     nrfjprog.erase_all()
-    for segment in fw:
+    for segment in fw_hex:
         nrfjprog.write(segment.address, segment.data, True)
     print("done")
 
@@ -77,14 +74,14 @@ def _main():
     """Connects to a PPK and prints the average current."""
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--force",
-                         help="program the PPK firmware if necessary",
-                         action="store_true")
+                        help="program the PPK firmware if necessary",
+                        action="store_true")
     parser.add_argument("-id", "--serial_number", type=int,
-                         help="serial number of J-Link")
+                        help="serial number of J-Link")
     parser.add_argument("-a", "--average", type=int,
-                         help="print average current over time")
+                        help="print average current over time")
     parser.add_argument("-t", "--trigger_voltage", type=int,
-                         help="print average current after trigger")
+                        help="print average current after trigger")
     args = parser.parse_args()
 
     if args.trigger_voltage:
@@ -101,10 +98,10 @@ def _main():
     nrfjprog.open()
     nrfjprog.connect_to_emu_without_snr()
 
-    fw = Hex.Hex(HEX_FILE_PATH)
-    if not _verify_firmware(nrfjprog, fw):
+    fw_hex = Hex.Hex(HEX_FILE_PATH)
+    if not _verify_firmware(nrfjprog, fw_hex):
         if args.force:
-            _write_firmware(nrfjprog, fw)
+            _write_firmware(nrfjprog, fw_hex)
         else:
             print("PPK firmware verification failed. Use -f option to replace it.")
             _close_and_exit(nrfjprog, -1)
