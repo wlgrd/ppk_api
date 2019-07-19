@@ -7,7 +7,6 @@ TODO: For printing an average lets have a configurable delay and sample length
 """
 import sys
 import os
-import time
 import argparse
 
 import numpy as np
@@ -66,9 +65,6 @@ def _set_trigger(ppk_api, voltage):
 def _main():
     """Parses arguments for the PPK CLI."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("-f", "--force",
-                        help="program the PPK firmware if necessary",
-                        action="store_true")
     parser.add_argument("-s", "--serial_number", type=int,
                         help="serial number of J-Link")
     parser.add_argument("-a", "--average", type=int,
@@ -81,6 +77,13 @@ def _main():
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
                         help="power cycle the DUT first", action="store_true")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-k", "--skip_verify",
+                       help="save time by not verifying the PPK firmware",
+                       action="store_true")
+    group.add_argument("-f", "--force",
+                       help="program the PPK firmware if necessary",
+                       action="store_true")
     args = parser.parse_args()
 
     if not args.trigger_voltage and not args.average:
@@ -91,19 +94,20 @@ def _main():
     nrfjprog_api.open()
     nrfjprog_api.connect_to_emu_without_snr()
 
-    fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
-    if not _verify_firmware(nrfjprog_api, fw_hex):
-        if args.force:
-            _write_firmware(nrfjprog_api, fw_hex)
-        else:
-            print("PPK firmware verification failed. Use -f option to replace it.")
-            _close_and_exit(nrfjprog_api, -1)
+    if not args.skip_verify:
+        fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
+        if not _verify_firmware(nrfjprog_api, fw_hex):
+            if args.force:
+                _write_firmware(nrfjprog_api, fw_hex)
+            else:
+                print("PPK firmware verification failed. Use -f option to replace it.")
+                _close_and_exit(nrfjprog_api, -1)
 
     ppk_api = ppk.API(nrfjprog_api, logprint=True)
     ppk_api.connect()
 
     if args.vdd:
-        if args.vdd < ppk.VDD_SET_MIN or args.vdd > ppk.VDD_SET_MAX:
+        if args.vdd < ppk_api.VDD_SET_MIN or args.vdd > ppk_api.VDD_SET_MAX:
             print("Invalid external voltage regulator value (%d)." % args.vdd)
             _close_and_exit(nrfjprog_api, -1)
         else:
