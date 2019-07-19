@@ -47,26 +47,12 @@ def _close_and_exit(nrfjprog_api, status):
 
 def _measure_avg(ppk_api, time_s):
     """Prints the average current over the specified amount of time."""
-    board_id = None
-    m_time = 0
-
-    ppk_api.average_measurement_start()
-
-    # TODO: This is suspicious. Maybe it's just a delay?
-    board_id = ppk_api.get_connected_board_id()
-    print("PPK Board ID: " + board_id)
-
-    ppk_api.average_measurement_start()
-    ppk_api.measurement_readout_start()
-
-    while m_time < time_s:
-        time.sleep(1)
-        m_time += 1
-        print(" Remaining time: {:d}".format(time_s-m_time), end='\r')
+    ppk_api.start_average_measurement(time_s)
+    ppk_api.stop_average_measurement()
 
     # Omit first 500 samples to avoid any jitter errors on startup.
+    print("len(avg_buffer): %d" % len(ppk_api.avg_buffer))
     result = ppk_api.avg_buffer[500:]
-    ppk_api.average_measurement_stop()
 
     print('Average result:')
     print(np.average(result))
@@ -91,6 +77,10 @@ def _main():
                         help="print average current after trigger")
     parser.add_argument("-v", "--vdd", type=int,
                         help="set external regulator voltage [2100, 3600]")
+    parser.add_argument("-c", "--clear_user_resistors",
+                        help="clear user calibration resistors", action="store_true")
+    parser.add_argument("-p", "--power_cycle_dut",
+                        help="power cycle the DUT first", action="store_true")
     args = parser.parse_args()
 
     if not args.trigger_voltage and not args.average:
@@ -109,7 +99,7 @@ def _main():
             print("PPK firmware verification failed. Use -f option to replace it.")
             _close_and_exit(nrfjprog_api, -1)
 
-    ppk_api = ppk.API(nrfjprog_api, logprint=False)
+    ppk_api = ppk.API(nrfjprog_api, logprint=True)
     ppk_api.connect()
 
     if args.vdd:
@@ -119,14 +109,18 @@ def _main():
         else:
             ppk_api.vdd_set(args.vdd)
 
-    ppk_api.clear_user_resistors()
-    ppk_api.average_measurement_stop()
+    if args.clear_user_resistors:
+        ppk_api.clear_user_resistors()
 
-    if args.trigger_voltage:
-        _set_trigger(ppk_api, args.trigger_voltage)
+    if args.power_cycle_dut:
+        ppk_api.dut_power_off()
+        ppk_api.dut_power_on()
 
     if args.average:
         _measure_avg(ppk_api, args.average)
+
+    if args.trigger_voltage:
+        _set_trigger(ppk_api, args.trigger_voltage)
 
     _close_and_exit(nrfjprog_api, 0)
 
