@@ -2,7 +2,8 @@
 import time
 import struct
 import re
-import math
+
+from numpy import average as np_avg
 
 from pynrfjprog import APIError
 
@@ -102,32 +103,16 @@ class API():
         self.trigger_buffer_size = 0
         self.trigger_data_captured = 0
         self.avg_buffer = []
-        self.avg_timeout = 0
         self.finished = False
         self.m_vdd = 3000
         self.connected = False
         self.data_buffer = []
         self.calibration_data = None
 
-    def _get_metadata(self, rttdata):
-        self.log("Metadata: " + rttdata)
-        restring = ('').join([
-            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
-            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
-            '([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
-            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*',
-            '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
-            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
-        ])
-
-        # Parse the given data using the regex restring
-        result = re.split(restring, rttdata)
-        return result[1:13]
-
-    def log(self, logstring):
+    def log(self, logstring, **kwargs):
         """Adds a prefix for log string prints."""
         if self.logprint:
-            print("PPK: %s" % str(logstring))
+            print(logstring, **kwargs)
 
     def get_connected_board_id(self):
         """Returns current board_id or raises a PPKError."""
@@ -135,36 +120,22 @@ class API():
             raise PPKError("Board ID not read at connect")
         return self.board_id
 
-    def disconnect_api(self):
-        """Disconnect from the emulator. TODO: Is this necessary?"""
-        pass
-        #self.nrfjprog_api.disconnect()
-
     def connect(self):
-        try:
-            self.nrfjprog_api.sys_reset()
-        except AttributeError:
-            pass
+        """Connect to the PPK then reset it and gather metadata."""
+        self.nrfjprog_api.sys_reset()
         self.nrfjprog_api.go()
         self.nrfjprog_api.rtt_start()
         while not self.nrfjprog_api.rtt_is_control_block_found():
             continue
-        try:
-            time.sleep(0.5)
+        data = None
+        while not data:
             data = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, 200)
-            (_, _, res_low, res_mid, res_hi,
-             board_id, _, _, _, vdd, _, _) = self._get_metadata(data)
-
-            self.calibration_data = [res_low, res_mid, res_hi]
-            self.board_id = board_id
-            self.m_vdd = int(vdd)
-            self.connected = True
-        except Exception as ex:
-            raise PPKError("Could not read Board ID, %s" % str(ex))
-        return self.calibration_data
-
-    def rtt_stop(self):
-        self.nrfjprog_api.rtt_stop()
+        data = self._parse_metadata(data)
+        (_, _, res_low, res_mid, res_hi, board_id, _, _, _, vdd, _, _) = data
+        self.calibration_data = [res_low, res_mid, res_hi]
+        self.board_id = board_id
+        self.m_vdd = int(vdd)
+        self.connected = True
 
     def reset_connection(self):
         self.nrfjprog_api.rtt_stop()
@@ -211,58 +182,30 @@ class API():
     def trigger_stop(self):
         self._write_ppk_cmd([RTTCommand.TRIG_STOP])
 
-    def average_acquisition_time_set(self, milliseconds=0):
-        """ Set the aquisition time in milliseconds
-            The time an average consumption should use before finishing
-
-            param @milliseconds Timeout value in ms
-                                0 = infinite
-        """
-        self.avg_timeout = milliseconds
-
-
-    def measure_average(self, time_s):
-        """"""
+    def measure_average(self, time_s, discard_jitter_count=500):
+        """Collect time_s worth of average measurements and return a float."""
         samples_count = (time_s * self.AVERAGE_SAMPLES_PER_SECOND)
         ppk_helper = PPKDataHelper()
-        self._write_ppk_cmd([RTTCommand.AVERAGE_START])
+        self.start_average_measurement()
         while True:
             self._read_and_parse_ppk_data(ppk_helper)
             if samples_count <= len(ppk_helper):
                 break
-            print("Collecting samples: %d" % len(ppk_helper), end='\r')
-        print("\n")
+            self.log("Collecting samples: %d" % len(ppk_helper), end='\r')
+        self.log('')
         self.stop_average_measurement()
         self._flush_rtt()
-        return ppk_helper.get_averages()
+        avg_buf = ppk_helper.get_averages()
+        avg_buf = avg_buf[discard_jitter_count:]
+        return np_avg(avg_buf)
 
-    def start_average_measurement(self, time_s):
+    def start_average_measurement(self):
         self.log("Starting average measurement...")
-        samples_count = (time_s * self.AVERAGE_SAMPLES_PER_SECOND)
-        ppk_helper = PPKDataHelper()
         self._write_ppk_cmd([RTTCommand.AVERAGE_START])
-        while True:
-            self._read_and_parse_ppk_data(ppk_helper)
-            if samples_count <= len(ppk_helper):
-                break
-            print("Collecting samples: %d" % len(ppk_helper), end='\r')
-        print("\n")
-        self.stop_average_measurement()
-        # TODO: Par
-        for byte_array in ppk_helper:
-            self._parse_ppk_packet(byte_array)
 
     def stop_average_measurement(self):
         self.log("Stopping average measurement.")
         self._write_ppk_cmd([RTTCommand.AVERAGE_STOP])
-
-    def _flush_rtt(self):
-        while True:
-            flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
-                                                     self.RTT_READ_BUF_LEN,
-                                                     encoding=None)
-            if not flush_bytes:
-                break
 
     def vdd_set(self, vdd):
         self.log("Setting VDD to %d" %vdd)
@@ -289,7 +232,7 @@ class API():
         self._write_ppk_cmd([RTTCommand.RES_USER_CLEAR])
 
     def clear_cal_resistors(self):
-        print("Clearing calibration resistors")
+        self.log("Clearing calibration resistors")
         self._write_ppk_cmd([RTTCommand.RES_CAL_CLEAR])
 
     def write_new_resistors(self, resistors):
@@ -306,9 +249,9 @@ class API():
         #     self.log("Changing resistor value")
         #     resistors[1] = 32.4
 
-        print("writing %.3f, %.3f, %.3f" %(resistors[0],
-                                           resistors[1],
-                                           resistors[2]))
+        self.log("writing %.3f, %.3f, %.3f" %(resistors[0],
+                                              resistors[1],
+                                              resistors[2]))
         # Pack the floats
         bufr1 = struct.pack('f', resistors[0])
         bufr2 = struct.pack('f', resistors[1])
@@ -326,7 +269,7 @@ class API():
                              (r1_list[0]), (r1_list[1]), (r1_list[2]), (r1_list[3]),
                              (r2_list[0]), (r2_list[1]), (r2_list[2]), (r2_list[3]),
                              (r3_list[0]), (r3_list[1]), (r3_list[2]), (r3_list[3])
-                           ])
+                            ])
 
     def trigger_data_handler(self):
         adc_val = 0
@@ -360,7 +303,7 @@ class API():
         self.nrfjprog_api.rtt_write(self.RTT_CHANNEL_INDEX,
                                     PPKDataHelper.encode(byte_array),
                                     encoding=None)
-        print("Written to RTT: %s" % byte_array)
+        self.log("Written to RTT: %s" % byte_array)
 
     def _read_and_parse_ppk_data(self, ppk_data_helper):
         """Read bytes from the RTT channel and pass them to a PPKDataHelper.
@@ -374,24 +317,46 @@ class API():
         for byte in byte_array:
             ppk_data_helper.decode(byte)
 
+    def _parse_metadata(self, rtt_data):
+        """Use the Regular Expression to parse a metadata packet."""
+        self.log("Metadata: " + rtt_data)
+        re_string = ('').join([
+            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
+            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
+            '([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
+            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*',
+            '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
+            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
+        ])
+        result = re.split(re_string, rtt_data)
+        return result[1:13]
+
+    def _flush_rtt(self):
+        while True:
+            flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
+                                                     self.RTT_READ_BUF_LEN,
+                                                     encoding=None)
+            if not flush_bytes:
+                break
+
     def _parse_ppk_packet(self, byte_array):
         """Parse decoded packet from the PPK."""
         if len(byte_array) == 4:
             try:
                 float_val = PPKDataHelper.unpack_average(byte_array)
                 self.avg_buffer.append(float_val)
-                print("Appended: %r\t->\t%r" % (byte_array, float_val))
+                self.log("Appended: %r\t->\t%r" % (byte_array, float_val))
             except (TypeError, struct.error):
                 raise PPKError("Invalid data in average set: %r" % byte_array)
         elif len(byte_array) == 5:
             # Bytes [0, 4] are uint32_t SysTick in microseconds.
             try:
                 u32_val = PPKDataHelper.unpack_timestamp(byte_array)
-                print("Timestamp recieved: %d" % u32_val)
+                self.log("Timestamp recieved: %d" % u32_val)
             except (TypeError, struct.error):
                 raise PPKError("Invalid timestamp: %r" % byte_array)
         else:
-            print("Trigger data received of len %d." % len(byte_array))
+            self.log("Trigger data received of len %d." % len(byte_array))
         #     for i in range(0, len(byte_array), 2):
         #         if (i + 1) < len(byte_array):
         #             tmp = np.uint16((byte_array[i + 1] << 8) + byte_array[i])
@@ -492,3 +457,18 @@ class PPKDataHelper():
     def unpack_timestamp(cls, byte_array):
         """Decode the first four bytes in byte_array and return a u32."""
         return struct.unpack('<I', bytearray(byte_array[:4]))[0]
+
+    @classmethod
+    def is_average_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain average data."""
+        return cls.AVERAGE_PKT_LEN == len(byte_array)
+
+    @classmethod
+    def is_timestamp_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain timestamp data."""
+        return cls.TIMESTAMP_PKT_LEN == len(byte_array)
+
+    @classmethod
+    def is_trigger_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain trigger data."""
+        return not cls.is_average_pkt(byte_array) and not cls.is_timestamp_pkt(byte_array)
