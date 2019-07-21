@@ -46,15 +46,14 @@ def _close_and_exit(nrfjprog_api, status):
 
 def _measure_avg(ppk_api, time_s):
     """Prints the average current over the specified amount of time."""
-    ppk_api.start_average_measurement(time_s)
-    ppk_api.stop_average_measurement()
+    avg_buffer = ppk_api.measure_average(time_s)
 
     # Omit first 500 samples to avoid any jitter errors on startup.
-    print("len(avg_buffer): %d" % len(ppk_api.avg_buffer))
-    result = ppk_api.avg_buffer[500:]
+    print("len(avg_buffer): %d" % len(avg_buffer))
+    avg_buffer = avg_buffer[500:]
 
     print('Average result:')
-    print(np.average(result))
+    print(np.average(avg_buffer))
 
 
 def _set_trigger(ppk_api, voltage):

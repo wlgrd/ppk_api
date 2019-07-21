@@ -220,6 +220,22 @@ class API():
         """
         self.avg_timeout = milliseconds
 
+
+    def measure_average(self, time_s):
+        """"""
+        samples_count = (time_s * self.AVERAGE_SAMPLES_PER_SECOND)
+        ppk_helper = PPKDataHelper()
+        self._write_ppk_cmd([RTTCommand.AVERAGE_START])
+        while True:
+            self._read_and_parse_ppk_data(ppk_helper)
+            if samples_count <= len(ppk_helper):
+                break
+            print("Collecting samples: %d" % len(ppk_helper), end='\r')
+        print("\n")
+        self.stop_average_measurement()
+        self._flush_rtt()
+        return ppk_helper.get_averages()
+
     def start_average_measurement(self, time_s):
         self.log("Starting average measurement...")
         samples_count = (time_s * self.AVERAGE_SAMPLES_PER_SECOND)
@@ -231,12 +247,22 @@ class API():
                 break
             print("Collecting samples: %d" % len(ppk_helper), end='\r')
         print("\n")
+        self.stop_average_measurement()
+        # TODO: Par
         for byte_array in ppk_helper:
             self._parse_ppk_packet(byte_array)
 
     def stop_average_measurement(self):
         self.log("Stopping average measurement.")
         self._write_ppk_cmd([RTTCommand.AVERAGE_STOP])
+
+    def _flush_rtt(self):
+        while True:
+            flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
+                                                     self.RTT_READ_BUF_LEN,
+                                                     encoding=None)
+            if not flush_bytes:
+                break
 
     def vdd_set(self, vdd):
         self.log("Setting VDD to %d" %vdd)
@@ -388,6 +414,9 @@ class PPKDataHelper():
     MODE_RECV = 1
     MODE_ESC_RECV = 2
 
+    AVERAGE_PKT_LEN = 4
+    TIMESTAMP_PKT_LEN = 5
+
     def __init__(self):
         """Creates an empty object for parsing bytes."""
         self._read_mode = self.MODE_RECV
@@ -429,6 +458,10 @@ class PPKDataHelper():
     def get_decoded(self):
         """Return the list of decoded packets."""
         return self._decoded
+
+    def get_averages(self):
+        """Returns a list of unpacked average packets."""
+        return [self.unpack_average(p) for p in self._decoded if self.AVERAGE_PKT_LEN == len(p)]
 
     def reset(self):
         """Clear the state of the object."""
