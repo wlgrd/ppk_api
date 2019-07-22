@@ -1,8 +1,9 @@
 """
 Simple CLI for working with the Nordic Power Profiler Kit (PPK).
 
-NOTE: The PPK resets the DUT when it starts. The --power_cycle_dut option can
-      be used to add a delay and ensure that the DUT's firmware has started.
+NOTE: The PPK resets the DUT when python connects. The --power_cycle_dut
+      option can be used to add a second DUT reset followed by a delay
+      to ensure that the DUT's firmware has time to start up.
 
 TODO: For trigger we should have voltage and sample length.
       Stretch goal is to have an option for outputting a png graph.
