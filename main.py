@@ -41,8 +41,9 @@ def _write_firmware(nrfjprog_api, fw_hex):
 
 def _close_and_exit(nrfjprog_api, status):
     """"""
-    nrfjprog_api.disconnect_from_emu()
-    nrfjprog_api.close()
+    if nrfjprog_api:
+        nrfjprog_api.disconnect_from_emu()
+        nrfjprog_api.close()
     sys.exit(status)
 
 
@@ -114,6 +115,7 @@ def _main():
         parser.print_usage()
         sys.exit(-1)
 
+    nrfjprog_api = None
     try:
         nrfjprog_api = _connect_to_emu(args)
 
