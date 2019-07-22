@@ -1,8 +1,10 @@
 """
 Simple CLI for working with the Nordic Power Profiler Kit.
 
-TODO: For printing an average lets have a configurable delay and sample length
-      For trigger we should have voltage and sample length.
+NOTE: The PPK resets the DUT when it starts. The --power_cycle_dut option can
+      be used to add a delay and ensure that the DUT's firmware has started.
+
+TODO: For trigger we should have voltage and sample length.
       Stretch goal is to have an option for outputting a png graph.
 """
 import sys
@@ -53,6 +55,26 @@ def _set_trigger(ppk_api, voltage):
     pass
 
 
+def _connect_to_emu(arg_parser):
+    nrfjprog_api = pynrfjprog.API.API('NRF52')
+    nrfjprog_api.open()
+
+    if arg_parser.serial_number:
+        nrfjprog_api.connect_to_emu_with_snr(arg_parser.serial_number)
+    else:
+        nrfjprog_api.connect_to_emu_without_snr()
+
+    if not arg_parser.skip_verify:
+        fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
+        if not _verify_firmware(nrfjprog_api, fw_hex):
+            if arg_parser.force:
+                _write_firmware(nrfjprog_api, fw_hex)
+            else:
+                print("PPK firmware verification failed. Use -f option to replace it.")
+                _close_and_exit(nrfjprog_api, -1)
+    return nrfjprog_api
+
+
 def _main():
     """Parses arguments for the PPK CLI."""
     parser = argparse.ArgumentParser()
@@ -83,22 +105,7 @@ def _main():
         parser.print_usage()
         sys.exit(-1)
 
-    nrfjprog_api = pynrfjprog.API.API('NRF52')
-    nrfjprog_api.open()
-
-    if args.serial_number:
-        nrfjprog_api.connect_to_emu_with_snr(args.serial_number)
-    else:
-        nrfjprog_api.connect_to_emu_without_snr()
-
-    if not args.skip_verify:
-        fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
-        if not _verify_firmware(nrfjprog_api, fw_hex):
-            if args.force:
-                _write_firmware(nrfjprog_api, fw_hex)
-            else:
-                print("PPK firmware verification failed. Use -f option to replace it.")
-                _close_and_exit(nrfjprog_api, -1)
+    nrfjprog_api = _connect_to_emu(parser)
 
     ppk_api = ppk.API(nrfjprog_api, logprint=args.verbose)
     ppk_api.connect()
