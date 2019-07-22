@@ -61,12 +61,14 @@ def _main():
                         help="print average current over time")
     parser.add_argument("-t", "--trigger_voltage", type=int,
                         help="print average current after trigger")
-    parser.add_argument("-v", "--vdd", type=int,
+    parser.add_argument("-e", "--external_vdd", type=int,
                         help="set external regulator voltage [2100, 3600]")
     parser.add_argument("-c", "--clear_user_resistors",
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
                         help="power cycle the DUT first", action="store_true")
+    parser.add_argument("-v", "--verbose",
+                        help="print logging information", action="store_true")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-k", "--skip_verify",
                        help="save time by not verifying the PPK firmware",
@@ -93,15 +95,15 @@ def _main():
                 print("PPK firmware verification failed. Use -f option to replace it.")
                 _close_and_exit(nrfjprog_api, -1)
 
-    ppk_api = ppk.API(nrfjprog_api, logprint=True)
+    ppk_api = ppk.API(nrfjprog_api, logprint=args.verbose)
     ppk_api.connect()
 
-    if args.vdd:
-        if args.vdd < ppk_api.VDD_SET_MIN or args.vdd > ppk_api.VDD_SET_MAX:
-            print("Invalid external voltage regulator value (%d)." % args.vdd)
+    if args.external_vdd:
+        if args.external_vdd < ppk_api.VDD_SET_MIN or args.external_vdd > ppk_api.VDD_SET_MAX:
+            print("Invalid external voltage regulator value (%d)." % args.external_vdd)
             _close_and_exit(nrfjprog_api, -1)
         else:
-            ppk_api.vdd_set(args.vdd)
+            ppk_api.vdd_set(args.external_vdd)
 
     if args.clear_user_resistors:
         ppk_api.clear_user_resistors()

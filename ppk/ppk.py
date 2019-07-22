@@ -90,7 +90,7 @@ class API():
     VDD_SET_MAX = 3600
 
     RTT_CHANNEL_INDEX = 0
-    RTT_READ_BUF_LEN = 100
+    RTT_READ_BUF_LEN = 200
 
 
     def __init__(self, nrfjprog_api, logprint=True):
@@ -98,30 +98,20 @@ class API():
         self.nrfjprog_api = nrfjprog_api
         self.logprint = logprint        # Connect to instrument
         self.current_meas_range = 0  # Dummy setting
-        self.board_id = None
         self.trigger_buffer = []
         self.trigger_buffer_size = 0
         self.trigger_data_captured = 0
-        self.avg_buffer = []
-        self.finished = False
-        self.m_vdd = 3000
-        self.connected = False
-        self.data_buffer = []
-        self.calibration_data = None
+        self._connected = False
+        self._vdd = None
+        self._metadata = {}
 
     def log(self, logstring, **kwargs):
-        """Adds a prefix for log string prints."""
+        """Print lof information only when logprint was set to True in __ini__."""
         if self.logprint:
             print(logstring, **kwargs)
 
-    def get_connected_board_id(self):
-        """Returns current board_id or raises a PPKError."""
-        if self.board_id is None:
-            raise PPKError("Board ID not read at connect")
-        return self.board_id
-
     def connect(self):
-        """Connect to the PPK then reset it and gather metadata."""
+        """Connect to the PPK and gather metadata."""
         self.nrfjprog_api.sys_reset()
         self.nrfjprog_api.go()
         self.nrfjprog_api.rtt_start()
@@ -129,24 +119,20 @@ class API():
             continue
         data = None
         while not data:
-            data = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, 200)
-        data = self._parse_metadata(data)
-        (_, _, res_low, res_mid, res_hi, board_id, _, _, _, vdd, _, _) = data
-        self.calibration_data = [res_low, res_mid, res_hi]
-        self.board_id = board_id
-        self.m_vdd = int(vdd)
-        self.connected = True
+            data = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, self.RTT_READ_BUF_LEN)
+        self._metadata = self._parse_metadata(data)
+        self._vdd = int(self._metadata["VDD"])
+        self._connected = True
 
     def reset_connection(self):
+        """Stop RTT, flush it, and then connect to the PPK again."""
         self.nrfjprog_api.rtt_stop()
-        self.nrfjprog_api.sys_reset()
-        self.nrfjprog_api.go()
-        self.nrfjprog_api.rtt_start()
-        while not self.nrfjprog_api.rtt_is_control_block_found:
-            continue
-        self._write_ppk_cmd([RTTCommand.AVERAGE_START])
-        self._write_ppk_cmd([RTTCommand.AVG_NUM_SET, 0x00, 1])
-        return True
+        self._flush_rtt()
+        self._connect()
+
+    def get_metadata(self):
+        """Return a copy of the PPK metadata that is read at the start of the connection."""
+        return self._metadata.copy()
 
     def dut_power_on(self):
         self.log("DUT power on")
@@ -200,7 +186,7 @@ class API():
         return np_avg(avg_buf)
 
     def start_average_measurement(self):
-        self.log("Starting average measurement...")
+        self.log("Starting average measurement.")
         self._write_ppk_cmd([RTTCommand.AVERAGE_START])
 
     def stop_average_measurement(self):
@@ -214,16 +200,16 @@ class API():
             raise PPKError("Invalid vdd given to vdd_set (%d)." % vdd)
         target_vdd = vdd
         while True:
-            if target_vdd > self.m_vdd:
-                new = self.m_vdd + 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
+            if target_vdd > self._vdd:
+                new = self._vdd + 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
             else:
-                new = self.m_vdd - 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
+                new = self._vdd - 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
             vdd_high_byte = new >> 8
             vdd_low_byte = new & 0xFF
             self._write_ppk_cmd([RTTCommand.REGULATOR_SET, vdd_high_byte, vdd_low_byte])
-            self.m_vdd = new
+            self._vdd = new
             # A short delay between calls to _write_ppk_cmd improves stability.
-            if self.m_vdd == target_vdd:
+            if self._vdd == target_vdd:
                 break
             else:
                 time.sleep(0.25)
@@ -303,7 +289,6 @@ class API():
         self.nrfjprog_api.rtt_write(self.RTT_CHANNEL_INDEX,
                                     PPKDataHelper.encode(byte_array),
                                     encoding=None)
-        self.log("Written to RTT: %s" % byte_array)
 
     def _read_and_parse_ppk_data(self, ppk_data_helper):
         """Read bytes from the RTT channel and pass them to a PPKDataHelper.
@@ -317,9 +302,10 @@ class API():
         for byte in byte_array:
             ppk_data_helper.decode(byte)
 
-    def _parse_metadata(self, rtt_data):
-        """Use the Regular Expression to parse a metadata packet."""
-        self.log("Metadata: " + rtt_data)
+    def _parse_metadata(self, metadata_str):
+        """Use a Regular Expression to parse a metadata packet."""
+        metadata_fields = ("VERSION", "CAL", "R1", "R2", "R3", "BOARD_ID",
+                           "USER_R1", "USER_R2", "USER_R3", "VDD", "HI", "LO")
         re_string = ('').join([
             'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
             '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
@@ -328,8 +314,9 @@ class API():
             '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
             'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
         ])
-        result = re.split(re_string, rtt_data)
-        return result[1:13]
+        result = re.split(re_string, metadata_str)[1:]
+        metadata = {metadata_fields[i]:result[i] for i in range(0, len(metadata_fields))}
+        return metadata
 
     def _flush_rtt(self):
         while True:
