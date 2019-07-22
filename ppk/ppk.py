@@ -1,4 +1,7 @@
-"""Handles communication with PPK hardware using RTT."""
+"""
+Handles communication with Nordic Power Profiler Kit (PPK) hardware
+using Segger's Real-Time Transfer functionality.
+"""
 import time
 import struct
 import re
@@ -92,9 +95,10 @@ class API():
     RTT_CHANNEL_INDEX = 0
     RTT_READ_BUF_LEN = 200
 
+    PPK_CMD_WRITE_DELAY = 0.25
 
     def __init__(self, nrfjprog_api, logprint=True):
-        """"""
+        """A stateful interface to a Nordic Power Profiler Kit."""
         self.nrfjprog_api = nrfjprog_api
         self.logprint = logprint        # Connect to instrument
         self.current_meas_range = 0  # Dummy setting
@@ -105,11 +109,6 @@ class API():
         self._vdd = None
         self._metadata = {}
 
-    def log(self, logstring, **kwargs):
-        """Print lof information only when logprint was set to True in __ini__."""
-        if self.logprint:
-            print(logstring, **kwargs)
-
     def connect(self):
         """Connect to the PPK and gather metadata."""
         self.nrfjprog_api.sys_reset()
@@ -117,10 +116,10 @@ class API():
         self.nrfjprog_api.rtt_start()
         while not self.nrfjprog_api.rtt_is_control_block_found():
             continue
-        data = None
-        while not data:
-            data = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, self.RTT_READ_BUF_LEN)
-        self._metadata = self._parse_metadata(data)
+        # Allow the PPK firmware to start.
+        time.sleep(0.9)
+        metadata = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, self.RTT_READ_BUF_LEN)
+        self._metadata = self._parse_metadata(metadata)
         self._vdd = int(self._metadata["VDD"])
         self._connected = True
 
@@ -128,18 +127,18 @@ class API():
         """Stop RTT, flush it, and then connect to the PPK again."""
         self.nrfjprog_api.rtt_stop()
         self._flush_rtt()
-        self._connect()
+        self.connect()
 
     def get_metadata(self):
         """Return a copy of the PPK metadata that is read at the start of the connection."""
         return self._metadata.copy()
 
     def dut_power_on(self):
-        self.log("DUT power on.")
+        self._log("DUT power on.")
         self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 1])
 
     def dut_power_off(self):
-        self.log("DUT power off.")
+        self._log("DUT power off.")
         self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 0])
 
     def trigger_acquisition_time_set(self, acqtime):
@@ -152,8 +151,8 @@ class API():
         buffer_size_low = self.trigger_buffer_size & 0xFF
         self._write_ppk_cmd([RTTCommand.TRIG_WINDOW_SET,
                              buffer_size_high, buffer_size_low])
-        self.log("Set acqusition time %d (buffer size:%d)." %
-                 (acqtime, self.trigger_buffer_size))
+        self._log("Set acqusition time %d (buffer size:%d)." %
+                  (acqtime, self.trigger_buffer_size))
 
     def trigger_value_set(self, trigger):
         """ Set the trigger value in uA
@@ -163,7 +162,7 @@ class API():
         mid = (trigger >> 8) & 0xFF
         low = trigger & 0xFF
         self._write_ppk_cmd([RTTCommand.TRIGGER_SET, high, mid, low])
-        self.log("Trigger set to %d." % trigger)
+        self._log("Trigger set to %d." % trigger)
 
     def trigger_stop(self):
         self._write_ppk_cmd([RTTCommand.TRIG_STOP])
@@ -177,48 +176,60 @@ class API():
             self._read_and_parse_ppk_data(ppk_helper)
             if samples_count <= len(ppk_helper):
                 break
-            self.log("Collecting samples: %d" % len(ppk_helper), end='\r')
-        self.log('')
+            self._log("Collecting samples: %d" % len(ppk_helper), end='\r')
+        self._log('')
         self.stop_average_measurement()
         self._flush_rtt()
         avg_buf = ppk_helper.get_averages()
         avg_buf = avg_buf[discard_jitter_count:]
         return np_avg(avg_buf)
 
+    def trigger_single(self):
+        """"""
+        pass
+        #self._log("Trigger data received of len %d." % len(byte_array))
+        #     for i in range(0, len(byte_array), 2):
+        #         if (i + 1) < len(byte_array):
+        #             tmp = np.uint16((byte_array[i + 1] << 8) + byte_array[i])
+        #             self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
+        #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
+        #             self.trigger_data_handler(adc_val, self.current_meas_range)
+
     def start_average_measurement(self):
-        self.log("Starting average measurement.")
+        self._log("Starting average measurement.")
         self._write_ppk_cmd([RTTCommand.AVERAGE_START])
 
     def stop_average_measurement(self):
-        self.log("Stopping average measurement.")
+        self._log("Stopping average measurement.")
         self._write_ppk_cmd([RTTCommand.AVERAGE_STOP])
 
-    def vdd_set(self, vdd):
-        self.log("Setting VDD to %d" %vdd)
+    def set_external_reg_vdd(self, vdd):
+        """Set VDD of external voltage regulator."""
+        self._log("Setting external regulator VDD to %d." % vdd)
         # Setting voltages above or below these values can cause the emu connection to stall.
         if (self.VDD_SET_MIN > vdd) or (self.VDD_SET_MAX < vdd):
-            raise PPKError("Invalid vdd given to vdd_set (%d)." % vdd)
+            raise PPKError("Invalid vdd given to set_external_reg_vdd (%d)." % vdd)
         target_vdd = vdd
         while True:
             if target_vdd > self._vdd:
-                new = self._vdd + 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
+                next_vdd = self._vdd + 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
             else:
-                new = self._vdd - 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
-            vdd_high_byte = new >> 8
-            vdd_low_byte = new & 0xFF
+                next_vdd = self._vdd - 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
+            vdd_high_byte = next_vdd >> 8
+            vdd_low_byte = next_vdd & 0xFF
             self._write_ppk_cmd([RTTCommand.REGULATOR_SET, vdd_high_byte, vdd_low_byte])
-            self._vdd = new
+            self._vdd = next_vdd
             # A short delay between calls to _write_ppk_cmd improves stability.
             if self._vdd == target_vdd:
                 break
             else:
-                time.sleep(0.25)
+                time.sleep(self.PPK_CMD_WRITE_DELAY)
 
     def clear_user_resistors(self):
         self._write_ppk_cmd([RTTCommand.RES_USER_CLEAR])
 
     def clear_cal_resistors(self):
-        self.log("Clearing calibration resistors.")
+        self._log("Clearing calibration resistors.")
         self._write_ppk_cmd([RTTCommand.RES_CAL_CLEAR])
 
     def write_new_resistors(self, resistors):
@@ -232,12 +243,12 @@ class API():
         r3_list = []
 
         # if (resistors[1] >=32.5 and resistors[1] < 33):
-        #     self.log("Changing resistor value")
+        #     self._log("Changing resistor value")
         #     resistors[1] = 32.4
 
-        self.log("writing %.3f, %.3f, %.3f" %(resistors[0],
-                                              resistors[1],
-                                              resistors[2]))
+        self._log("writing %.3f, %.3f, %.3f" %(resistors[0],
+                                               resistors[1],
+                                               resistors[2]))
         # Pack the floats
         bufr1 = struct.pack('f', resistors[0])
         bufr2 = struct.pack('f', resistors[1])
@@ -261,7 +272,7 @@ class API():
         adc_val = 0
 
         if self.trigger_data_captured >= self.trigger_buffer_size:
-            self.log("Trigger buffer full.")
+            self._log("Trigger buffer full.")
             self.trigger_stop()
             # TODO: What is this?
             # self.data_callback(self.trigger_buffer, self.DATA_TYPE_TRIGGER)
@@ -279,9 +290,9 @@ class API():
                 hi_div = (self.ADC_GAIN * self.ADC_MAX * self.MEAS_RES_HI)
                 sample_ua = adc_val * (self.ADC_REF / hi_div)
             elif self.current_meas_range == self.MEAS_RANGE_INVALID:
-                self.log("Range INVALID")
+                self._log("Range INVALID")
             elif self.current_meas_range == self.MEAS_RANGE_NONE:
-                self.log("Range not detected")
+                self._log("Range not detected")
             self.trigger_buffer.append(sample_ua)
 
     def _write_ppk_cmd(self, byte_array):
@@ -310,29 +321,10 @@ class API():
             if not flush_bytes:
                 break
 
-    def _parse_ppk_packet(self, byte_array):
-        """Parse decoded packet from the PPK."""
-        if len(byte_array) == 4:
-            try:
-                float_val = PPKDataHelper.unpack_average(byte_array)
-                self.log("Average packet received: %f" % float_val)
-            except (TypeError, struct.error):
-                raise PPKError("Invalid data in average set: %r" % byte_array)
-        elif len(byte_array) == 5:
-            # Bytes [0, 4] are uint32_t SysTick in microseconds.
-            try:
-                u32_val = PPKDataHelper.unpack_timestamp(byte_array)
-                self.log("Timestamp recieved: %d" % u32_val)
-            except (TypeError, struct.error):
-                raise PPKError("Invalid timestamp: %r" % byte_array)
-        else:
-            self.log("Trigger data received of len %d." % len(byte_array))
-        #     for i in range(0, len(byte_array), 2):
-        #         if (i + 1) < len(byte_array):
-        #             tmp = np.uint16((byte_array[i + 1] << 8) + byte_array[i])
-        #             self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
-        #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
-        #             self.trigger_data_handler(adc_val, self.current_meas_range)
+    def _log(self, logstring, **kwargs):
+        """Print lof information only when logprint was set to True in __ini__."""
+        if self.logprint:
+            print(logstring, **kwargs)
 
     @staticmethod
     def _parse_metadata(metadata_str):

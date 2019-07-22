@@ -1,5 +1,5 @@
 """
-Simple CLI for working with the Nordic Power Profiler Kit.
+Simple CLI for working with the Nordic Power Profiler Kit (PPK).
 
 NOTE: The PPK resets the DUT when it starts. The --power_cycle_dut option can
       be used to add a delay and ensure that the DUT's firmware has started.
@@ -55,19 +55,19 @@ def _set_trigger(ppk_api, voltage):
     pass
 
 
-def _connect_to_emu(arg_parser):
+def _connect_to_emu(args):
     nrfjprog_api = pynrfjprog.API.API('NRF52')
     nrfjprog_api.open()
 
-    if arg_parser.serial_number:
-        nrfjprog_api.connect_to_emu_with_snr(arg_parser.serial_number)
+    if args.serial_number:
+        nrfjprog_api.connect_to_emu_with_snr(args.serial_number)
     else:
         nrfjprog_api.connect_to_emu_without_snr()
 
-    if not arg_parser.skip_verify:
+    if not args.skip_verify:
         fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)
         if not _verify_firmware(nrfjprog_api, fw_hex):
-            if arg_parser.force:
+            if args.force:
                 _write_firmware(nrfjprog_api, fw_hex)
             else:
                 print("PPK firmware verification failed. Use -f option to replace it.")
@@ -80,7 +80,7 @@ def _main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--serial_number", type=int,
                         help="serial number of J-Link")
-    parser.add_argument("-a", "--average", type=int,
+    parser.add_argument("-a", "--average", type=float,
                         help="print average current over time")
     parser.add_argument("-t", "--trigger_voltage", type=int,
                         help="print average current after trigger")
@@ -89,7 +89,7 @@ def _main():
     parser.add_argument("-c", "--clear_user_resistors",
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
-                        help="power cycle the DUT and delay", nargs='?', const=0, type=int)
+                        help="power cycle the DUT and delay", nargs='?', const=0, type=float)
     parser.add_argument("-v", "--verbose",
                         help="print logging information", action="store_true")
     group = parser.add_mutually_exclusive_group()
@@ -105,7 +105,7 @@ def _main():
         parser.print_usage()
         sys.exit(-1)
 
-    nrfjprog_api = _connect_to_emu(parser)
+    nrfjprog_api = _connect_to_emu(args)
 
     ppk_api = ppk.API(nrfjprog_api, logprint=args.verbose)
     ppk_api.connect()
