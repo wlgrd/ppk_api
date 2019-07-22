@@ -12,6 +12,7 @@ import sys
 import os
 import argparse
 import time
+import csv
 
 from ppk import ppk
 import pynrfjprog
@@ -46,9 +47,15 @@ def _close_and_exit(nrfjprog_api, status):
     sys.exit(status)
 
 
-def _measure_avg(ppk_api, time_s):
+def _measure_avg(ppk_api, time_s, out_file):
     """Prints the average current over the specified amount of time."""
-    print('Average result: %0.2f' % ppk_api.measure_average(time_s))
+    result, data_buf = ppk_api.measure_average(time_s)
+    if out_file:
+        with open(out_file, "w", newline='') as csv_file:
+            csv_writer = csv.writer(csv_file, delimiter='\n')
+            csv_writer.writerow(data_buf)
+    else:
+        print('Average result: %0.2f' % result)
 
 
 def _set_trigger(ppk_api, voltage):
@@ -93,6 +100,8 @@ def _main():
                         help="power cycle the DUT and delay", nargs='?', const=0, type=float)
     parser.add_argument("-v", "--verbose",
                         help="print logging information", action="store_true")
+    parser.add_argument("-o", "--out_file",
+                        help="write measurement data to file", type=str)
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-k", "--skip_verify",
                        help="save time by not verifying the PPK firmware",
@@ -106,34 +115,38 @@ def _main():
         parser.print_usage()
         sys.exit(-1)
 
-    nrfjprog_api = _connect_to_emu(args)
+    try:
+        nrfjprog_api = _connect_to_emu(args)
 
-    ppk_api = ppk.API(nrfjprog_api, logprint=args.verbose)
-    ppk_api.connect()
+        ppk_api = ppk.API(nrfjprog_api, logprint=args.verbose)
+        ppk_api.connect()
 
-    if args.external_vdd:
-        if args.external_vdd < ppk_api.VDD_SET_MIN or args.external_vdd > ppk_api.VDD_SET_MAX:
-            print("Invalid external voltage regulator value (%d)." % args.external_vdd)
-            _close_and_exit(nrfjprog_api, -1)
-        else:
-            ppk_api.vdd_set(args.external_vdd)
+        if args.external_vdd:
+            if args.external_vdd < ppk_api.VDD_SET_MIN or args.external_vdd > ppk_api.VDD_SET_MAX:
+                print("Invalid external voltage regulator value (%d)." % args.external_vdd)
+                _close_and_exit(nrfjprog_api, -1)
+            else:
+                ppk_api.vdd_set(args.external_vdd)
 
-    if args.clear_user_resistors:
-        ppk_api.clear_user_resistors()
+        if args.clear_user_resistors:
+            ppk_api.clear_user_resistors()
 
-    if args.power_cycle_dut is not None:
-        ppk_api.dut_power_off()
-        ppk_api.dut_power_on()
-        if args.power_cycle_dut:
-            time.sleep(args.power_cycle_dut)
+        if args.power_cycle_dut is not None:
+            ppk_api.dut_power_off()
+            ppk_api.dut_power_on()
+            if args.power_cycle_dut:
+                time.sleep(args.power_cycle_dut)
 
-    if args.average:
-        _measure_avg(ppk_api, args.average)
+        if args.average:
+            _measure_avg(ppk_api, args.average, args.out_file)
 
-    if args.trigger_voltage:
-        _set_trigger(ppk_api, args.trigger_voltage)
+        if args.trigger_voltage:
+            _set_trigger(ppk_api, args.trigger_voltage)
 
-    _close_and_exit(nrfjprog_api, 0)
+        _close_and_exit(nrfjprog_api, 0)
+    except Exception as ex:
+        print(ex)
+        _close_and_exit(nrfjprog_api, -1)
 
 
 if __name__ == "__main__":
