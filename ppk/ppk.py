@@ -302,22 +302,6 @@ class API():
         for byte in byte_array:
             ppk_data_helper.decode(byte)
 
-    def _parse_metadata(self, metadata_str):
-        """Use a Regular Expression to parse a metadata packet."""
-        metadata_fields = ("VERSION", "CAL", "R1", "R2", "R3", "BOARD_ID",
-                           "USER_R1", "USER_R2", "USER_R3", "VDD", "HI", "LO")
-        re_string = ('').join([
-            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
-            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
-            '([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
-            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*',
-            '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
-            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
-        ])
-        result = re.split(re_string, metadata_str)[1:]
-        metadata = {metadata_fields[i]:result[i] for i in range(0, len(metadata_fields))}
-        return metadata
-
     def _flush_rtt(self):
         while True:
             flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
@@ -331,8 +315,7 @@ class API():
         if len(byte_array) == 4:
             try:
                 float_val = PPKDataHelper.unpack_average(byte_array)
-                self.avg_buffer.append(float_val)
-                self.log("Appended: %r\t->\t%r" % (byte_array, float_val))
+                self.log("Average packet received: %f" % float_val)
             except (TypeError, struct.error):
                 raise PPKError("Invalid data in average set: %r" % byte_array)
         elif len(byte_array) == 5:
@@ -350,6 +333,23 @@ class API():
         #             self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
         #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
         #             self.trigger_data_handler(adc_val, self.current_meas_range)
+
+    @staticmethod
+    def _parse_metadata(metadata_str):
+        """Use a Regular Expression to parse a metadata packet."""
+        metadata_fields = ("VERSION", "CAL", "R1", "R2", "R3", "BOARD_ID",
+                           "USER_R1", "USER_R2", "USER_R3", "VDD", "HI", "LO")
+        re_string = ('').join([
+            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
+            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
+            '([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
+            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*',
+            '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
+            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
+        ])
+        result = re.split(re_string, metadata_str)[1:]
+        metadata = {metadata_fields[i]:result[i] for i in range(0, len(metadata_fields))}
+        return metadata
 
 
 class PPKDataHelper():
