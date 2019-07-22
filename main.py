@@ -6,7 +6,6 @@ NOTE: The PPK resets the DUT when python connects. The --power_cycle_dut
       to ensure that the DUT's firmware has time to start up.
 
 TODO: For trigger we should have voltage and sample length.
-      Stretch goal is to have an option for outputting a png graph.
 """
 import sys
 import os
@@ -55,7 +54,7 @@ def _measure_avg(ppk_api, time_s, out_file):
             csv_writer = csv.writer(csv_file, delimiter='\n')
             csv_writer.writerow(data_buf)
     else:
-        print('Average result: %0.2f' % result)
+        print('Average: %0.2fuA' % result)
 
 
 def _set_trigger(ppk_api, voltage):
