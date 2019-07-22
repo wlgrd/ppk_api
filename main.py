@@ -8,6 +8,7 @@ TODO: For printing an average lets have a configurable delay and sample length
 import sys
 import os
 import argparse
+import time
 
 from ppk import ppk
 import pynrfjprog
@@ -66,7 +67,7 @@ def _main():
     parser.add_argument("-c", "--clear_user_resistors",
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
-                        help="power cycle the DUT first", action="store_true")
+                        help="power cycle the DUT and delay", nargs='?', const=0, type=int)
     parser.add_argument("-v", "--verbose",
                         help="print logging information", action="store_true")
     group = parser.add_mutually_exclusive_group()
@@ -112,9 +113,11 @@ def _main():
     if args.clear_user_resistors:
         ppk_api.clear_user_resistors()
 
-    if args.power_cycle_dut:
+    if args.power_cycle_dut is not None:
         ppk_api.dut_power_off()
         ppk_api.dut_power_on()
+        if args.power_cycle_dut:
+            time.sleep(args.power_cycle_dut)
 
     if args.average:
         _measure_avg(ppk_api, args.average)
