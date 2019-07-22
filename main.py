@@ -84,7 +84,11 @@ def _main():
 
     nrfjprog_api = pynrfjprog.API.API('NRF52')
     nrfjprog_api.open()
-    nrfjprog_api.connect_to_emu_without_snr()
+
+    if args.serial_number:
+        nrfjprog_api.connect_to_emu_with_snr(args.serial_number)
+    else:
+        nrfjprog_api.connect_to_emu_without_snr()
 
     if not args.skip_verify:
         fw_hex = pynrfjprog.Hex.Hex(HEX_FILE_PATH)

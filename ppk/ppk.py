@@ -135,11 +135,11 @@ class API():
         return self._metadata.copy()
 
     def dut_power_on(self):
-        self.log("DUT power on")
+        self.log("DUT power on.")
         self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 1])
 
     def dut_power_off(self):
-        self.log("DUT power off")
+        self.log("DUT power off.")
         self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 0])
 
     def trigger_acquisition_time_set(self, acqtime):
@@ -152,7 +152,7 @@ class API():
         buffer_size_low = self.trigger_buffer_size & 0xFF
         self._write_ppk_cmd([RTTCommand.TRIG_WINDOW_SET,
                              buffer_size_high, buffer_size_low])
-        self.log("Set acqusition time %d (buffer size:%d)" %
+        self.log("Set acqusition time %d (buffer size:%d)." %
                  (acqtime, self.trigger_buffer_size))
 
     def trigger_value_set(self, trigger):
@@ -163,7 +163,7 @@ class API():
         mid = (trigger >> 8) & 0xFF
         low = trigger & 0xFF
         self._write_ppk_cmd([RTTCommand.TRIGGER_SET, high, mid, low])
-        self.log("Trigger set to %d" % trigger)
+        self.log("Trigger set to %d." % trigger)
 
     def trigger_stop(self):
         self._write_ppk_cmd([RTTCommand.TRIG_STOP])
@@ -218,7 +218,7 @@ class API():
         self._write_ppk_cmd([RTTCommand.RES_USER_CLEAR])
 
     def clear_cal_resistors(self):
-        self.log("Clearing calibration resistors")
+        self.log("Clearing calibration resistors.")
         self._write_ppk_cmd([RTTCommand.RES_CAL_CLEAR])
 
     def write_new_resistors(self, resistors):
@@ -261,7 +261,7 @@ class API():
         adc_val = 0
 
         if self.trigger_data_captured >= self.trigger_buffer_size:
-            self.log("Trigger buffer full")
+            self.log("Trigger buffer full.")
             self.trigger_stop()
             # TODO: What is this?
             # self.data_callback(self.trigger_buffer, self.DATA_TYPE_TRIGGER)
