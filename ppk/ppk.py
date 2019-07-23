@@ -443,7 +443,7 @@ class PPKDataHelper():
             raise ValueError("Invalid measurement range in trigger buffer: %d" % meas_range)
         buffs = []
         for buf in u16s:
-            buffs.append([x * (self.ADC_MULT / divisor) for x in buf])
+            buffs.append([(x & MEAS_ADC_MSK) * (self.ADC_MULT / divisor) for x in buf])
         return zip(timestamps, buffs)
 
     def reset(self):
