@@ -90,6 +90,7 @@ class API():
             self._resistors = [float(self._metadata['R1']),
                                float(self._metadata['R2']),
                                float(self._metadata['R3'])]
+        self._log("Resistors: LO: %s, MID: %s, HI: %s" % (self._resistors[0], self._resistors[1], self._resistors[2]))
         self._connected = True
 
     def reset_connection(self):
@@ -424,6 +425,9 @@ class PPKDataHelper():
         return [self.unpack_average(p) for p in self._decoded if self.AVERAGE_PKT_LEN == len(p)]
 
     def get_trigger_buffs(self, meas_res_lo, meas_res_mid, meas_res_hi):
+        """Scale this object's decoded packets according to the given
+        ranges and return a sequence of (timestamp, data) tuples.
+        """
         timestamps = [self.unpack_timestamp(x) for x in self._decoded[::2]]
         u16s = []
         # Condense trigger buffer values into uint16s.
@@ -441,9 +445,10 @@ class PPKDataHelper():
             divisor = meas_res_hi
         else:
             raise ValueError("Invalid measurement range in trigger buffer: %d" % meas_range)
+        print("Using measurement range: %f" % divisor)
         buffs = []
         for buf in u16s:
-            buffs.append([(x & MEAS_ADC_MSK) * (self.ADC_MULT / divisor) for x in buf])
+            buffs.append([(x & self.MEAS_ADC_MSK) * (self.ADC_MULT / divisor) * 1e6 for x in buf])
         return zip(timestamps, buffs)
 
     def reset(self):
