@@ -59,7 +59,7 @@ By default, the CLI will verify that the PPK has been programmed with the includ
 
 If only one J-Link/Nordic development kit is plugged into the PC then the **--serial_number** option can be skipped.
 
-EXAMPLE: Reset the DUT and allow 3 seconds to press 'Button4' before collecting 5 seconds of average measurement data':
+**EXAMPLE:** Reset the DUT and allow 3 seconds to press 'Button4' before collecting 5 seconds of average measurement data':
 ```
 $ python3 main.py -p 3 -a 5-o avg_data_log.csv
 Average: 865.98uA
@@ -79,7 +79,7 @@ Stopping average measurement.
 Average: 858.66uA
 ```
 
-EXAMPLE: Reset the DUT and allow one second for the firmware to boot before collecting a trigger buffer with a 2mA "Trigger level" and 5.85ms of sample data. Save the data to a file called 'trig_data.csv':
+**EXAMPLE:** Reset the DUT and allow one second for the firmware to boot before collecting a trigger buffer with a 2mA "Trigger level" and 5.85ms of sample data. Save the data to a file called 'trig_data.csv':
 ```
 $ python3 main.py -p 1 -t 2000 -w 5850 -o trig_data.csv
 Trigger buff average: 2649.05uA
