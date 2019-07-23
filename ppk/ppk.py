@@ -90,7 +90,9 @@ class API():
             self._resistors = [float(self._metadata['R1']),
                                float(self._metadata['R2']),
                                float(self._metadata['R3'])]
-        self._log("Resistors: LO: %s, MID: %s, HI: %s" % (self._resistors[0], self._resistors[1], self._resistors[2]))
+        self._log("Resistors: LO: %s, MID: %s, HI: %s" % (self._resistors[0],
+                                                          self._resistors[1],
+                                                          self._resistors[2]))
         self._connected = True
 
     def reset_connection(self):
@@ -222,7 +224,7 @@ class API():
         self._log('')
         self._stop_average_measurement()
         self._flush_rtt()
-        avg_buf = ppk_helper.get_averages()
+        timestamp, avg_buf = ppk_helper.get_average_buffs()[0]
         avg_buf = avg_buf[discard_jitter_count:]
         return (np_avg(avg_buf), avg_buf)
 
@@ -420,38 +422,51 @@ class PPKDataHelper():
         """Return the list of decoded packets."""
         return self._decoded
 
-    def get_averages(self):
-        """Returns a list of unpacked average packets."""
-        return [self.unpack_average(p) for p in self._decoded if self.AVERAGE_PKT_LEN == len(p)]
+    def get_average_buffs(self):
+        """Return a list of parsed (timestamp, avg_data) tuples.
+
+        Every series of average measurements starts with a timestamp.
+        """
+        result = []
+        ts = None
+        buf = None
+        for i in range(0, len(self._decoded)):
+            if self.is_timestamp_pkt(self._decoded[i]):
+                if ts and buf:
+                    result.append((ts, buf[:]))
+                ts = self.unpack_timestamp(self._decoded[i])
+                buf = []
+            elif self.is_average_pkt(self._decoded[i]):
+                if ts:
+                    buf.append(self.unpack_average(self._decoded[i]))
+        if ts and buf:
+            result.append((ts, buf[:]))
+        return result
 
     def get_trigger_buffs(self, meas_res_lo, meas_res_mid, meas_res_hi):
-        """Scale this object's decoded packets according to the given
-        ranges and return a sequence of (timestamp, data) tuples.
+        """Return a list of parsed (timestamp, trig_data) tuples.
+
+        Every buffer of trigger data is preceded by a timestamp. The trigger
+        data values are first combined into u16s. The u16s have two bits
+        that describe which measurement range to use when scaling them.
         """
-        timestamps = [self.unpack_timestamp(x) for x in self._decoded[::2]]
-        u16s = []
-        # Condense trigger buffer values into uint16s.
-        for pkt in self._decoded[1::2]:
-            u16s.append([self.make_u16(pkt[x], pkt[x+1]) for x in range(0, len(pkt), 2)])
-        buffs = []
-        for buf in u16s:
-            scaled = []
-            for byte in buf:
-                # Decode the measurement range for the buffer values.
-                meas_range = (byte & self.MEAS_RANGE_MSK) >> self.MEAS_RANGE_POS
-                # Scale the buffer values accordingly.
-                divisor = None
-                if meas_range == self.MEAS_RANGE_LO:
-                    divisor = meas_res_lo
-                elif meas_range == self.MEAS_RANGE_MID:
-                    divisor = meas_res_mid
-                elif meas_range == self.MEAS_RANGE_HI:
-                    divisor = meas_res_hi
-                else:
-                    raise ValueError("Invalid measurement in trigger buffer: %d" % meas_range)
-                scaled.append((byte & self.MEAS_ADC_MSK) * (self.ADC_MULT / divisor) * 1e6)
-            buffs.append(scaled)
-        return zip(timestamps, buffs)
+        result = []
+        ts = None
+        for i in range(0, len(self._decoded)):
+            if self.is_timestamp_pkt(self._decoded[i]):
+                ts = self.unpack_timestamp(self._decoded[i])
+            elif self.is_trigger_pkt(self._decoded[i]):
+                if ts:
+                    buf = self._decoded[i]
+                    u16s = [self.make_u16(buf[x], buf[x+1]) for x in range(0, len(buf), 2)]
+                    scaled = [self.scale_trigger_value(b, meas_res_lo, meas_res_mid, meas_res_hi)
+                              for b in u16s]
+                    result.append((ts, scaled))
+                    ts = None
+            else:
+                ts = None
+        return result
+
 
     def reset(self):
         """Clear the state of the object."""
@@ -488,6 +503,21 @@ class PPKDataHelper():
         """Return True if byte_array appears to contain trigger data."""
         return not cls.is_average_pkt(byte_array) and not cls.is_timestamp_pkt(byte_array)
 
+    @classmethod
+    def scale_trigger_value(cls, u16_value, meas_res_lo, meas_res_mid, meas_res_hi):
+        """Decode a u16's measurement range and then scale it."""
+        meas_range = (u16_value & cls.MEAS_RANGE_MSK) >> cls.MEAS_RANGE_POS
+        divisor = None
+        if meas_range == cls.MEAS_RANGE_LO:
+            divisor = meas_res_lo
+        elif meas_range == cls.MEAS_RANGE_MID:
+            divisor = meas_res_mid
+        elif meas_range == cls.MEAS_RANGE_HI:
+            divisor = meas_res_hi
+        else:
+            raise ValueError("Invalid measurement range in trigger buffer: %d" % meas_range)
+        return (u16_value & cls.MEAS_ADC_MSK) * (cls.ADC_MULT / divisor) * 1e6
+
     @staticmethod
     def unpack_average(byte_array):
         """Decode the four bytes in byte_array into a float."""
@@ -500,4 +530,5 @@ class PPKDataHelper():
 
     @staticmethod
     def make_u16(low_byte, high_byte):
+        """Combine two bytes into a u16."""
         return (high_byte << 8) + low_byte
