@@ -8,8 +8,6 @@ import re
 
 from numpy import average as np_avg
 
-from pynrfjprog import APIError
-
 
 class PPKError(Exception):
     """PPK exception class, inherits from the built-in Exception class."""
@@ -536,7 +534,7 @@ class PPKDataHelper():
         elif meas_range == cls.MEAS_RANGE_HI:
             divisor = meas_res_hi
         else:
-            raise ValueError("Invalid measurement range in trigger buffer: %d" % meas_range)
+            raise PPKError("Invalid measurement range in trigger buffer: %d" % meas_range)
         return (u16_value & cls.MEAS_ADC_MSK) * (cls.ADC_MULT / divisor) * 1e6
 
     @staticmethod
