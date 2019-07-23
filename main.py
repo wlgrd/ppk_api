@@ -89,8 +89,8 @@ def _connect_to_emu(args):
     return nrfjprog_api
 
 
-def _main():
-    """Parses arguments for the PPK CLI."""
+def _add_and_parse_args():
+    """Build the argparse object and parse the args."""
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--serial_number", type=int,
                         help="serial number of J-Link")
@@ -122,7 +122,12 @@ def _main():
     group.add_argument("-f", "--force",
                        help="program the PPK firmware if necessary",
                        action="store_true")
-    args = parser.parse_args()
+    return (parser, parser.parse_args())
+
+
+def _main():
+    """Parses arguments for the PPK CLI."""
+    parser, args = _add_and_parse_args()
 
     if not args.trigger_microamps and not args.average:
         parser.print_usage()
