@@ -11,7 +11,7 @@ The main features of the ppk_api include:
 ### Requirements
 The interface to the PPK requires Nordic's [nRF Command Line Tools](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Command-Line-Tools).
 
-The excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) and [numpy](https://numpy.org/) modules can be installed from the command line using pip:
+Additionally, the excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) and [numpy](https://numpy.org/) Python modules can be installed from the command line using pip:
 ```
 $ cd ppk_api
 $ pip3 install --user -r requirements.txt
@@ -57,5 +57,11 @@ optional arguments:
 ```
 By default, the CLI will verify that the PPK has been programmed with the included PPK firmware every time it starts. If the firmware is not found then an error message is generated and the program exits. The **--force** option can be used to automatically reprogram the PPK without generating an error. The firmware verification can be skipped entirely using the **--skip_verify** option.
 
+If only one J-Link/Nordic development kit is plugged into the PC then the **--serial_number** option can be skipped.
+
+**NOTE:** The **--external_vdd** option is only recommended for use when the DUT is an external device that is being powered by 'External DUT' pins. See the [PPK documentation](https://infocenter.nordicsemi.com/index.jsp?topic=%2Fug_ppk%2FUG%2Fppk%2FPPK_user_guide_Intro.html&cp=6_6&tags=Power+Profiler+Kit) for more information.
+
 **NOTE:** When a connection to the PPK is established a soft reset is performed on the PPK to put its firmware into a known state. The side effect of this action is that the DUT experiences a power cycle. **This can lead to confusion if the DUT needs a certain amount of time to boot before it's ready to be measured or a stateful action needs to be performed (e.g. pushing a button on the DUT to enter a mode).** If this is the case then the **--power_cycle_dut** option can be used to provide a deterministic delay (in seconds) between the DUT being reset and the start of the measurement.
 
+### TODO
+The **--enable_ext_trigger** and **--spike_filtering** options have not been tested.
