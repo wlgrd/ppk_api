@@ -49,23 +49,28 @@ def _close_and_exit(nrfjprog_api, status):
 
 def _measure_avg(ppk_api, time_s, out_file):
     """Prints the average current over the specified amount of time."""
-    result, data_buf = ppk_api.measure_average(time_s)
+    avg, timestamped_buf = ppk_api.measure_average(time_s)
     if out_file:
         with open(out_file, "w", newline='') as csv_file:
-            csv_writer = csv.writer(csv_file, delimiter='\n')
-            csv_writer.writerow(data_buf)
-    else:
-        print('Average: %0.2fuA' % result)
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
+            for row in timestamped_buf:
+                csv_writer.writerow(row)
+    print('Average: %0.2fuA' % avg)
 
 
 def _measure_triggers(ppk_api, time_us, level_ua, count, out_file):
     """Prints the average current after the trigger voltage is reached."""
     buffers = ppk_api.measure_triggers(time_us, level_ua, count)
     if out_file:
-        print("TODO")
-    else:
-        for timestamp, avg, buf in buffers:
-            print("Average: %0.2fuA" % avg)
+        with open(out_file, "w", newline='') as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
+            for avg, timestamped_buf in buffers:
+                for row in timestamped_buf:
+                    csv_writer.writerow(row)
+    for avg, timestamped_buf in buffers:
+        print("Trigger buff average: %0.2fuA" % avg)
 
 
 def _connect_to_emu(args):
@@ -114,7 +119,8 @@ def _add_and_parse_args():
                         help="write measurement data to file", type=str)
     parser.add_argument("-g", "--spike_filtering",
                         help="enable spike filtering", action="store_true")
-
+    parser.add_argument("-x", "--enable_ext_trigger",
+                        help="enable 'TRIG IN' external trigger", action="store_true")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-k", "--skip_verify",
                        help="save time by not verifying the PPK firmware",
@@ -154,10 +160,15 @@ def _main():
             ppk_api.disable_dut_power()
             ppk_api.enable_dut_power()
             if args.power_cycle_dut:
+                if args.verbose:
+                    print("Sleep for %0.1fs." % args.power_cycle_dut)
                 time.sleep(args.power_cycle_dut)
 
         if args.spike_filtering:
             ppk_api.enable_spike_filtering()
+
+        if args.enable_ext_trigger:
+            ppk_api.enable_ext_trigger_in()
 
         if args.average:
             _measure_avg(ppk_api, args.average, args.out_file)

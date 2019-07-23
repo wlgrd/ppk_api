@@ -33,6 +33,7 @@ class RTTCommand():
     REGULATOR_SET = 0x0D
     VREF_LO_SET = 0x0E
     VREF_HI_SET = 0x0F
+    EXT_TRIG_IN_TOGGLE = 0x11
     RES_USER_SET = 0x12
     RES_USER_CLEAR = 0x13
     SPIKE_FILTER_ON = 0x15
@@ -65,6 +66,7 @@ class API():
         self.nrfjprog_api = nrfjprog_api
         self.logprint = logprint
         self._connected = False
+        self._ext_trig_enabled = False
         self._vdd = None
         self._metadata = None
         self._resistors = None
@@ -108,6 +110,24 @@ class API():
         if not self._connected:
             raise PPKError("Invalid operation: must connect first.")
         return self._metadata.copy()
+
+    def enable_ext_trigger_in(self):
+        """Enable the 'TRIG IN' external trigger."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Enable 'TRIG IN' external trigger.")
+        if not self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = True
+
+    def disable_ext_trigger_in(self):
+        """Disable the 'TRIG IN' external trigger."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Disable 'TRIG IN' external trigger.")
+        if self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = False
 
     def enable_dut_power(self):
         """Turn DUT power on."""
@@ -224,9 +244,11 @@ class API():
         self._log('')
         self._stop_average_measurement()
         self._flush_rtt()
-        timestamp, avg_buf = ppk_helper.get_average_buffs()[0]
-        avg_buf = avg_buf[discard_jitter_count:]
-        return (np_avg(avg_buf), avg_buf)
+        # Only one (timestamp, avg_data) tuple is expected here.
+        ts, avg_buf = ppk_helper.get_average_buffs()[0]
+        timestamped_buf = [(ts + self.AVERAGE_TIME_US * i, avg_buf[i])
+                           for i in range(discard_jitter_count, len(avg_buf))]
+        return (np_avg(avg_buf[discard_jitter_count:]), timestamped_buf)
 
     def measure_triggers(self, window_time_us, level_ua, count=1):
         """Collect count trigger buffers."""
@@ -251,8 +273,10 @@ class API():
         self._stop_trigger()
         self._flush_rtt()
         result = []
-        for timestamp, buf in ppk_helper.get_trigger_buffs(*self._resistors):
-            result.append((timestamp, np_avg(buf), buf))
+        for ts, trig_buf in ppk_helper.get_trigger_buffs(*self._resistors):
+            timestamped_buf = [(ts + self.ADC_SAMPLING_TIME_US * i, trig_buf[i])
+                               for i in range(0, len(trig_buf))]
+            result.append((np_avg(trig_buf), timestamped_buf))
         return result
 
     def _start_average_measurement(self):
@@ -363,7 +387,7 @@ class PPKDataHelper():
     TIMESTAMP_PKT_LEN = 5
 
     # Trigger buffer values consist of pairs of two bytes that get packed
-    # into a uint16 with the top three bits encoding the "measurement range".
+    # into a u16 with the top two bits encoding the "measurement range".
     # The measurement range is defined by the R1, R2, R3 resistors or
     # their USER replacements.
     MEAS_RANGE_POS = 14
@@ -446,9 +470,7 @@ class PPKDataHelper():
     def get_trigger_buffs(self, meas_res_lo, meas_res_mid, meas_res_hi):
         """Return a list of parsed (timestamp, trig_data) tuples.
 
-        Every buffer of trigger data is preceded by a timestamp. The trigger
-        data values are first combined into u16s. The u16s have two bits
-        that describe which measurement range to use when scaling them.
+        Every buffer of trigger data is preceded by a timestamp.
         """
         result = []
         ts = None
@@ -466,7 +488,6 @@ class PPKDataHelper():
             else:
                 ts = None
         return result
-
 
     def reset(self):
         """Clear the state of the object."""
