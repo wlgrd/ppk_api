@@ -133,9 +133,10 @@ def _main():
     """Parses arguments for the PPK CLI."""
     parser, args = _add_and_parse_args()
 
-    if not args.trigger_microamps and not args.average:
-        parser.print_usage()
-        sys.exit(-1)
+    if not args.trigger_microamps:
+        if not args.average or args.enable_ext_trigger:
+            parser.print_usage()
+            sys.exit(-1)
 
     nrfjprog_api = None
     try:
@@ -166,7 +167,7 @@ def _main():
             ppk_api.enable_spike_filtering()
 
         if args.enable_ext_trigger:
-            ppk_api.enable_ext_trigge0r_in()
+            ppk_api.enable_ext_trigger_in()
 
         if args.average:
             _measure_avg(ppk_api, args.average, args.out_file)
