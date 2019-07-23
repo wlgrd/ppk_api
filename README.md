@@ -4,9 +4,9 @@ Nordic Semiconductor's [Power Profiler Kit (PPK)](https://www.nordicsemi.com/Sof
 The main features of the ppk_api include:
 
  - Comparable functionality to the nRF Connect GUI
- - Comma Separated Value (CSV) log files for both average and trigger bufer measurement data
+ - Comma Separated Value (CSV) log files for both average and trigger buffer measurement data
  - Written in Python3 for easy integration with other CLI tools
- - Cross platform support
+ - Cross-platform support
 
 ### Requirements
 The interface to the PPK requires Nordic's [nRF Command Line Tools](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Command-Line-Tools).
