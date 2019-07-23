@@ -60,10 +60,16 @@ def _measure_avg(ppk_api, time_s, out_file):
 
 def _measure_triggers(ppk_api, time_us, level_ua, count, out_file):
     """Prints the average current after the trigger voltage is reached."""
-    data_buf = ppk_api.measure_triggers(time_us, level_ua, count)
+    buffers = ppk_api.measure_triggers(time_us, level_ua, count)
+    if out_file:
+        print("TODO")
+    else:
+        for timestamp, avg, buf in buffers:
+            print("Average: %0.2fuA" % avg)
 
 
 def _connect_to_emu(args):
+    """Connects to emulator and replaces the PPK firmware if necessary."""
     nrfjprog_api = pynrfjprog.API.API('NRF52')
     nrfjprog_api.open()
 
