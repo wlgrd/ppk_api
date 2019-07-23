@@ -61,7 +61,7 @@ If only one J-Link/Nordic development kit is plugged into the PC then the **--se
 
 **EXAMPLE:** Reset the DUT and allow 3 seconds to press 'Button4' before collecting 5 seconds of average measurement data':
 ```
-$ python3 main.py -p 3 -a 5-o avg_data_log.csv
+$ python3 main.py -p 3 -a 5
 Average: 865.98uA
 ```
 Adding **--verbose** prints additional information:
