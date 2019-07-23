@@ -58,9 +58,9 @@ def _measure_avg(ppk_api, time_s, out_file):
         print('Average: %0.2fuA' % result)
 
 
-def _set_trigger(ppk_api, voltage):
+def _measure_triggers(ppk_api, time_us, level_ua, count, out_file):
     """Prints the average current after the trigger voltage is reached."""
-    pass
+    data_buf = ppk_api.measure_triggers(time_us, level_ua, count)
 
 
 def _connect_to_emu(args):
@@ -90,8 +90,12 @@ def _main():
                         help="serial number of J-Link")
     parser.add_argument("-a", "--average", type=float,
                         help="print average current over time")
-    parser.add_argument("-t", "--trigger_voltage", type=int,
-                        help="print average current after trigger")
+    parser.add_argument("-t", "--trigger_microamps", type=int,
+                        help="set trigger threshold in microamps")
+    parser.add_argument("-w", "--trigger_microseconds", type=int, nargs='?', default=5850,
+                        help="set trigger window in microseconds")
+    parser.add_argument("-n", "--trigger_count", type=int, nargs='?', default=1,
+                        help="set number of trigger buffers to capture")
     parser.add_argument("-e", "--external_vdd", type=int,
                         help="set external regulator voltage [2100, 3600]")
     parser.add_argument("-c", "--clear_user_resistors",
@@ -102,6 +106,9 @@ def _main():
                         help="print logging information", action="store_true")
     parser.add_argument("-o", "--out_file",
                         help="write measurement data to file", type=str)
+    parser.add_argument("-g", "--spike_filtering",
+                        help="enable spike filtering", action="store_true")
+
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-k", "--skip_verify",
                        help="save time by not verifying the PPK firmware",
@@ -111,7 +118,7 @@ def _main():
                        action="store_true")
     args = parser.parse_args()
 
-    if not args.trigger_voltage and not args.average:
+    if not args.trigger_microamps and not args.average:
         parser.print_usage()
         sys.exit(-1)
 
@@ -133,16 +140,23 @@ def _main():
             ppk_api.clear_user_resistors()
 
         if args.power_cycle_dut is not None:
-            ppk_api.dut_power_off()
-            ppk_api.dut_power_on()
+            ppk_api.disable_dut_power()
+            ppk_api.enable_dut_power()
             if args.power_cycle_dut:
                 time.sleep(args.power_cycle_dut)
+
+        if args.spike_filtering:
+            ppk_api.enable_spike_filtering()
 
         if args.average:
             _measure_avg(ppk_api, args.average, args.out_file)
 
-        if args.trigger_voltage:
-            _set_trigger(ppk_api, args.trigger_voltage)
+        if args.trigger_microamps:
+            _measure_triggers(ppk_api,
+                              args.trigger_microseconds,
+                              args.trigger_microamps,
+                              args.trigger_count,
+                              args.out_file)
 
         _close_and_exit(nrfjprog_api, 0)
     except Exception as ex:
