@@ -433,22 +433,24 @@ class PPKDataHelper():
         # Condense trigger buffer values into uint16s.
         for pkt in self._decoded[1::2]:
             u16s.append([self.make_u16(pkt[x], pkt[x+1]) for x in range(0, len(pkt), 2)])
-        # Decode the measurement range for the buffer values.
-        meas_range = (u16s[0][0] & self.MEAS_RANGE_MSK) >> self.MEAS_RANGE_POS
-        # Scale the buffer values accordingly.
-        divisor = None
-        if meas_range == self.MEAS_RANGE_LO:
-            divisor = meas_res_lo
-        elif meas_range == self.MEAS_RANGE_MID:
-            divisor = meas_res_mid
-        elif meas_range == self.MEAS_RANGE_HI:
-            divisor = meas_res_hi
-        else:
-            raise ValueError("Invalid measurement range in trigger buffer: %d" % meas_range)
-        print("Using measurement range: %f" % divisor)
         buffs = []
         for buf in u16s:
-            buffs.append([(x & self.MEAS_ADC_MSK) * (self.ADC_MULT / divisor) * 1e6 for x in buf])
+            scaled = []
+            for byte in buf:
+                # Decode the measurement range for the buffer values.
+                meas_range = (byte & self.MEAS_RANGE_MSK) >> self.MEAS_RANGE_POS
+                # Scale the buffer values accordingly.
+                divisor = None
+                if meas_range == self.MEAS_RANGE_LO:
+                    divisor = meas_res_lo
+                elif meas_range == self.MEAS_RANGE_MID:
+                    divisor = meas_res_mid
+                elif meas_range == self.MEAS_RANGE_HI:
+                    divisor = meas_res_hi
+                else:
+                    raise ValueError("Invalid measurement in trigger buffer: %d" % meas_range)
+                scaled.append((byte & self.MEAS_ADC_MSK) * (self.ADC_MULT / divisor) * 1e6)
+            buffs.append(scaled)
         return zip(timestamps, buffs)
 
     def reset(self):
