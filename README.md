@@ -93,6 +93,8 @@ Timestamp (us),Current (uA)
 139168,2185.2587090163934
 ...
 ```
+And LibreOffice can draw a chart of the data in 'trig_data.csv' as a sanity check: 
+![trigger_buf](https://user-images.githubusercontent.com/6494431/61754172-f2020980-ad66-11e9-913d-870641a9f7f4.png)
 
 **NOTE:** The **--external_vdd** option is only recommended for use when the DUT is an external device that is being powered by 'External DUT' pins. See the [PPK documentation](https://infocenter.nordicsemi.com/index.jsp?topic=%2Fug_ppk%2FUG%2Fppk%2FPPK_user_guide_Intro.html&cp=6_6&tags=Power+Profiler+Kit) for more information.
 
