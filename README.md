@@ -1,7 +1,7 @@
 Nordic Semiconductor's [Power Profiler Kit (PPK)](https://www.nordicsemi.com/Software-and-Tools/Development-Kits/Power-Profiler-Kit) is very useful for measuring and optimizing power consumption when developing battery-powered devices. Although the [nRF Connect for Desktop](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Connect-for-desktop) application provides a friendly GUI, it has limited support for logging measurement data and isn't accessible from a command line. The purpose of this library is to make the PPK more useful for logging and integration into automated testing/continuous integration systems.
 
 ### Features
-The main features of the ppk_api include:
+The main features of the **ppk_api** include:
 
  - Comparable functionality to the nRF Connect GUI
  - Comma Separated Value (CSV) log files for both average and trigger buffer measurement data
