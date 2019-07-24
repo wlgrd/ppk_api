@@ -258,7 +258,7 @@ class API():
         return self._measure_triggers(count)
 
     def _measure_triggers(self, count=1):
-        """"""
+        """Wait until count trigger buffers are received."""
         ppk_helper = PPKDataHelper()
         samples_count = count * 2
         while True:
@@ -358,6 +358,7 @@ class API():
             ppk_data_helper.decode(byte)
 
     def _flush_rtt(self):
+        """Read and discard any available RTT bytes."""
         while True:
             flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
                                                      self.RTT_READ_BUF_LEN,
