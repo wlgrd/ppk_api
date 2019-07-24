@@ -102,3 +102,4 @@ And LibreOffice can draw a chart of the data in 'trig_data.csv' as a sanity chec
 
 ### TODO
 The **--enable_ext_trigger** and **--spike_filtering** options have not been tested.
+The 'TRIG OUT' pin is not controllable.
