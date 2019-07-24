@@ -3,7 +3,7 @@ Nordic Semiconductor's [Power Profiler Kit (PPK)](https://www.nordicsemi.com/Sof
 ### Features
 The main features of the **ppk_api** include:
 
- - Comparable functionality to the nRF Connect GUI
+ - Comparable functionality to the nRF Connect for Desktop GUI
  - Comma Separated Value (CSV) log files for both average and trigger buffer measurement data
  - Written in Python3 for easy integration with other CLI tools
  - Cross-platform support
