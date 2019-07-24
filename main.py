@@ -58,8 +58,19 @@ def _measure_avg(ppk_api, time_s, out_file):
 
 
 def _measure_triggers(ppk_api, time_us, level_ua, count, out_file):
-    """Prints the average current after the trigger voltage is reached."""
+    """Acquire and process trigger buffers."""
     buffers = ppk_api.measure_triggers(time_us, level_ua, count)
+    _process_triggers(buffers, out_file)
+
+
+def _measure_ext_triggers(ppk_api, time_us, count, out_file):
+    """Acquire and process external trigger buffers."""
+    buffers = ppk_api.measure_external_triggers(time_us, count)
+    _process_triggers(buffers, out_file)
+
+
+def _process_triggers(buffers, out_file):
+    """Save the buffers if necessary and print their averages."""
     if out_file:
         with open(out_file, "w", newline='') as csv_file:
             csv_writer = csv.writer(csv_file)
@@ -99,8 +110,6 @@ def _add_and_parse_args():
                         help="serial number of J-Link")
     parser.add_argument("-a", "--average", type=float,
                         help="print average current over time")
-    parser.add_argument("-t", "--trigger_microamps", type=int,
-                        help="set trigger threshold in microamps")
     parser.add_argument("-w", "--trigger_microseconds", type=int, nargs='?', default=5850,
                         help="set trigger window in microseconds")
     parser.add_argument("-n", "--trigger_count", type=int, nargs='?', default=1,
@@ -117,15 +126,18 @@ def _add_and_parse_args():
                         help="write measurement data to file", type=str)
     parser.add_argument("-g", "--spike_filtering",
                         help="enable spike filtering", action="store_true")
-    parser.add_argument("-x", "--enable_ext_trigger",
-                        help="enable 'TRIG IN' external trigger", action="store_true")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("-k", "--skip_verify",
-                       help="save time by not verifying the PPK firmware",
-                       action="store_true")
-    group.add_argument("-f", "--force",
-                       help="program the PPK firmware if necessary",
-                       action="store_true")
+    trig_group = parser.add_mutually_exclusive_group()
+    trig_group.add_argument("-t", "--trigger_microamps", type=int,
+                            help="set trigger threshold in microamps")
+    trig_group.add_argument("-x", "--enable_ext_trigger",
+                            help="enable 'TRIG IN' external trigger", action="store_true")
+    fw_group = parser.add_mutually_exclusive_group()
+    fw_group.add_argument("-k", "--skip_verify",
+                          help="save time by not verifying the PPK firmware",
+                          action="store_true")
+    fw_group.add_argument("-f", "--force",
+                          help="program the PPK firmware if necessary",
+                          action="store_true")
     return (parser, parser.parse_args())
 
 
@@ -133,9 +145,10 @@ def _main():
     """Parses arguments for the PPK CLI."""
     parser, args = _add_and_parse_args()
 
-    if not args.trigger_microamps:
-        if not args.average or args.enable_ext_trigger:
+    if not args.trigger_microamps and not args.enable_ext_trigger:
+        if not args.average:
             parser.print_usage()
+            print("main.py: error: no measurement operation specified")
             sys.exit(-1)
 
     nrfjprog_api = None
@@ -147,7 +160,8 @@ def _main():
 
         if args.external_vdd:
             if args.external_vdd < ppk_api.VDD_SET_MIN or args.external_vdd > ppk_api.VDD_SET_MAX:
-                print("Invalid external voltage regulator value (%d)." % args.external_vdd)
+                parser.print_usage()
+                print("main.py: error: invalid external voltage regulator value (%d)" % args.external_vdd)
                 _close_and_exit(nrfjprog_api, -1)
             else:
                 ppk_api.vdd_set(args.external_vdd)
@@ -166,9 +180,6 @@ def _main():
         if args.spike_filtering:
             ppk_api.enable_spike_filtering()
 
-        if args.enable_ext_trigger:
-            ppk_api.enable_ext_trigger_in()
-
         if args.average:
             _measure_avg(ppk_api, args.average, args.out_file)
 
@@ -178,10 +189,15 @@ def _main():
                               args.trigger_microamps,
                               args.trigger_count,
                               args.out_file)
+        elif args.enable_ext_trigger:
+            _measure_ext_triggers(ppk_api,
+                                  args.trigger_microseconds,
+                                  args.trigger_count,
+                                  args.out_file)
 
         _close_and_exit(nrfjprog_api, 0)
     except Exception as ex:
-        print(ex)
+        print("main.py: error: " + str(ex))
         _close_and_exit(nrfjprog_api, -1)
 
 

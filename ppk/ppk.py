@@ -21,7 +21,7 @@ class PPKError(Exception):
 
 class RTTCommand():
     """RTT command opcodes."""
-    TRIGGER_SET = 0x01
+    TRIG_SET = 0x01
     TRIG_WINDOW_SET = 0x03
     TRIG_SINGLE_SET = 0x05
     AVERAGE_START = 0x06
@@ -109,24 +109,6 @@ class API():
             raise PPKError("Invalid operation: must connect first.")
         return self._metadata.copy()
 
-    def enable_ext_trigger_in(self):
-        """Enable the 'TRIG IN' external trigger."""
-        if not self._connected:
-            raise PPKError("Invalid operation: must connect first.")
-        self._log("Enable 'TRIG IN' external trigger.")
-        if not self._ext_trig_enabled:
-            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
-            self._ext_trig_enabled = True
-
-    def disable_ext_trigger_in(self):
-        """Disable the 'TRIG IN' external trigger."""
-        if not self._connected:
-            raise PPKError("Invalid operation: must connect first.")
-        self._log("Disable 'TRIG IN' external trigger.")
-        if self._ext_trig_enabled:
-            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
-            self._ext_trig_enabled = False
-
     def enable_dut_power(self):
         """Turn DUT power on."""
         if not self._connected:
@@ -166,7 +148,13 @@ class API():
         self._write_ppk_cmd(cmd)
 
     def enable_spike_filtering(self):
-        """Enable spike filtering feature."""
+        """Enable spike filtering feature.
+
+        When this is turned on, the PPK software will filter data directly
+        after an automatic range switch. This will limit unwanted spikes
+        due to rapid switching, but may also remove short current spikes
+        that might be of significance.
+        """
         if not self._connected:
             raise PPKError("Invalid operation: must connect first.")
         self._log("Enabling spike filtering.")
@@ -253,13 +241,25 @@ class API():
         if not self._connected:
             raise PPKError("Invalid operation: must connect first.")
         self._log("measure_triggers(%r, %r, %r)." % (window_time_us, level_ua, count))
-        ppk_helper = PPKDataHelper()
         self.set_trigger_window(window_time_us)
         if count == 1:
             self._set_single_trigger(level_ua)
         else:
             self._set_trigger(level_ua)
-        # Each buffer includes a timestamp.
+        return self._measure_triggers(count)
+
+    def measure_external_triggers(self, window_time_us, count=1):
+        """Wait for the 'TRIG IN' pin before capturing trigger buffers."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("measure_external_triggers(%r, %r)." % (window_time_us, count))
+        self.set_trigger_window(window_time_us)
+        self._enable_ext_trigger_in()
+        return self._measure_triggers(count)
+
+    def _measure_triggers(self, count=1):
+        """"""
+        ppk_helper = PPKDataHelper()
         samples_count = count * 2
         while True:
             self._read_and_parse_ppk_data(ppk_helper)
@@ -268,7 +268,10 @@ class API():
             if samples_count <= collected_buffs:
                 break
         self._log('')
-        self._stop_trigger()
+        if self._ext_trig_enabled:
+            self._disable_ext_trigger_in()
+        else:
+            self._stop_trigger()
         self._flush_rtt()
         result = []
         for ts, trig_buf in ppk_helper.get_trigger_buffs(*self._resistors):
@@ -276,6 +279,24 @@ class API():
                                for i in range(0, len(trig_buf))]
             result.append((np_avg(trig_buf), timestamped_buf))
         return result
+
+    def _enable_ext_trigger_in(self):
+        """Enable the 'TRIG IN' external trigger.
+
+        The external trigger is used in place of the normal TRIG_SET
+        and TRIG_SINGLE_SET commands.
+        """
+        self._log("Enable 'TRIG IN' external trigger.")
+        if not self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = True
+
+    def _disable_ext_trigger_in(self):
+        """Disable the 'TRIG IN' external trigger."""
+        self._log("Disable 'TRIG IN' external trigger.")
+        if self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = False
 
     def _start_average_measurement(self):
         """Start generating average current measurements."""
@@ -298,7 +319,7 @@ class API():
         high = (level_ua >> 16) & 0xFF
         mid = (level_ua >> 8) & 0xFF
         low = level_ua & 0xFF
-        self._write_ppk_cmd([RTTCommand.TRIGGER_SET, high, mid, low])
+        self._write_ppk_cmd([RTTCommand.TRIG_SET, high, mid, low])
 
     def _set_single_trigger(self, level_ua):
         """Set the single trigger level.
