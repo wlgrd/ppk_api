@@ -99,7 +99,3 @@ And LibreOffice can draw a chart of the data in 'trig_data.csv' as a sanity chec
 **NOTE:** The **--external_vdd** option is only recommended for use when the DUT is an external device that is being powered by 'External DUT' pins. See the [PPK documentation](https://infocenter.nordicsemi.com/index.jsp?topic=%2Fug_ppk%2FUG%2Fppk%2FPPK_user_guide_Intro.html&cp=6_6&tags=Power+Profiler+Kit) for more information.
 
 **NOTE:** When a connection to the PPK is established a soft reset is performed on the PPK to put its firmware into a known state. The side effect of this action is that the DUT experiences a power cycle. **This can lead to confusion if the DUT needs a certain amount of time to boot before it's ready to be measured or a stateful action needs to be performed (e.g. pushing a button on the DUT to enter a mode).** If this is the case then the **--power_cycle_dut** option can be used to provide a deterministic delay (in seconds) between the DUT being reset and the start of the measurement.
-
-### TODO
-The **--enable_ext_trigger** and **--spike_filtering** options have not been tested.
-The 'TRIG OUT' pin is not controllable.
