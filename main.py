@@ -138,19 +138,30 @@ def _add_and_parse_args():
     fw_group.add_argument("-f", "--force",
                           help="program the PPK firmware if necessary",
                           action="store_true")
-    return (parser, parser.parse_args())
-
-
-def _main():
-    """Parses arguments for the PPK CLI."""
-    parser, args = _add_and_parse_args()
-
+    args = parser.parse_args()
     if not args.trigger_microamps and not args.enable_ext_trigger:
         if not args.average:
             parser.print_usage()
             print("main.py: error: no measurement operation specified")
             sys.exit(-1)
+    if args.trigger_microseconds:
+        if (args.trigger_microseconds < ppk.API.TRIG_WINDOW_MIN_US or
+                args.trigger_microseconds > ppk.API.TRIG_WINDOW_MAX_US):
+            parser.print_usage()
+            print("main.py: error: invalid trigger window width (%d)" %
+                  args.trigger_microseconds)
+            sys.exit(-1)
+    if args.external_vdd:
+        if args.external_vdd < ppk.API.EXT_REG_MIN_MV or args.external_vdd > ppk.API.EXT_REG_MAX_MV:
+            parser.print_usage()
+            print("main.py: error: invalid external voltage regulator value (%d)" %
+                  args.external_vdd)
+            sys.exit(-1)
+    return args
 
+def _main():
+    """Parses arguments for the PPK CLI."""
+    args = _add_and_parse_args()
     nrfjprog_api = None
     try:
         nrfjprog_api = _connect_to_emu(args)
@@ -159,12 +170,7 @@ def _main():
         ppk_api.connect()
 
         if args.external_vdd:
-            if args.external_vdd < ppk_api.VDD_SET_MIN or args.external_vdd > ppk_api.VDD_SET_MAX:
-                parser.print_usage()
-                print("main.py: error: invalid external voltage regulator value (%d)" % args.external_vdd)
-                _close_and_exit(nrfjprog_api, -1)
-            else:
-                ppk_api.vdd_set(args.external_vdd)
+            ppk_api.vdd_set(args.external_vdd)
 
         if args.clear_user_resistors:
             ppk_api.clear_user_resistors()
