@@ -11,7 +11,7 @@ The main features of the **ppk_api** include:
 ### Requirements
 The interface to the PPK requires Nordic's [nRF Command Line Tools](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Command-Line-Tools).
 
-Additionally, the excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) and [numpy](https://numpy.org/) Python modules can be installed from the command line using pip:
+Additionally, the excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) Python module can be installed from the command line using pip:
 ```
 $ cd ppk_api
 $ pip3 install --user -r requirements.txt

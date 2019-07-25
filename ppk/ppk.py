@@ -5,8 +5,7 @@ using Segger's Real-Time Transfer functionality.
 import time
 import struct
 import re
-
-from numpy import average as np_avg
+import math
 
 
 class PPKError(Exception):
@@ -234,7 +233,7 @@ class API():
         ts, avg_buf = ppk_helper.get_average_buffs()[0]
         timestamped_buf = [(ts + self.AVERAGE_TIME_US * i, avg_buf[i])
                            for i in range(discard_jitter_count, len(avg_buf))]
-        return (np_avg(avg_buf[discard_jitter_count:]), timestamped_buf)
+        return (self.favg(avg_buf[discard_jitter_count:]), timestamped_buf)
 
     def measure_triggers(self, window_time_us, level_ua, count=1):
         """Collect count trigger buffers."""
@@ -277,7 +276,7 @@ class API():
         for ts, trig_buf in ppk_helper.get_trigger_buffs(*self._resistors):
             timestamped_buf = [(ts + self.ADC_SAMPLING_TIME_US * i, trig_buf[i])
                                for i in range(0, len(trig_buf))]
-            result.append((np_avg(trig_buf), timestamped_buf))
+            result.append((self.favg(trig_buf), timestamped_buf))
         return result
 
     def _enable_ext_trigger_in(self):
@@ -370,6 +369,12 @@ class API():
         """Print lof information only when logprint was set to True in __ini__."""
         if self.logprint:
             print(logstring, **kwargs)
+
+    @staticmethod
+    def favg(float_seq):
+        """Return the average of a sequence of floats."""
+        sum = math.fsum(float_seq)
+        return sum / len(float_seq)
 
     @staticmethod
     def _parse_metadata(metadata_str):
