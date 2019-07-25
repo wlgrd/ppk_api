@@ -10,6 +10,7 @@ import os
 import argparse
 import time
 import csv
+import pandas
 
 from ppk import ppk
 import pynrfjprog
@@ -45,7 +46,7 @@ def _close_and_exit(nrfjprog_api, status):
     sys.exit(status)
 
 
-def _measure_avg(ppk_api, time_s, out_file):
+def _measure_avg(ppk_api, time_s, out_file, draw_png):
     """Prints the average current over the specified amount of time."""
     avg, timestamped_buf = ppk_api.measure_average(time_s)
     if out_file:
@@ -54,22 +55,24 @@ def _measure_avg(ppk_api, time_s, out_file):
             csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
             for row in timestamped_buf:
                 csv_writer.writerow(row)
+        if draw_png:
+            _save_png(timestamped_buf, _replace_file_suffix(out_file, '.png'))
     print('Average: %0.2fuA' % avg)
 
 
-def _measure_triggers(ppk_api, time_us, level_ua, count, out_file):
+def _measure_triggers(ppk_api, time_us, level_ua, count, out_file, draw_png):
     """Acquire and process trigger buffers."""
     buffers = ppk_api.measure_triggers(time_us, level_ua, count)
-    _process_triggers(buffers, out_file)
+    _process_triggers(buffers, out_file, draw_png)
 
 
-def _measure_ext_triggers(ppk_api, time_us, count, out_file):
+def _measure_ext_triggers(ppk_api, time_us, count, out_file, draw_png):
     """Acquire and process external trigger buffers."""
     buffers = ppk_api.measure_external_triggers(time_us, count)
-    _process_triggers(buffers, out_file)
+    _process_triggers(buffers, out_file, draw_png)
 
 
-def _process_triggers(buffers, out_file):
+def _process_triggers(buffers, out_file, draw_png):
     """Save the buffers if necessary and print their averages."""
     if out_file:
         with open(out_file, "w", newline='') as csv_file:
@@ -78,8 +81,35 @@ def _process_triggers(buffers, out_file):
             for avg, timestamped_buf in buffers:
                 for row in timestamped_buf:
                     csv_writer.writerow(row)
-    for avg, timestamped_buf in buffers:
-        print("Trigger buff average: %0.2fuA" % avg)
+        if draw_png:
+            if len(buffers) == 1:
+                _save_png(buffers[0][1], _replace_file_suffix(out_file, '.png'))
+            else:
+                for i, buffer in enumerate(buffers):
+                    avg, timestamped_buf = buffer
+                    _save_png(timestamped_buf, _replace_file_suffix(out_file, '_%d.png' % i))
+    if len(buffers) == 1:
+        print("Trigger buff average: %0.2fuA" % buffers[0][0])
+    else:
+        for i, buffer in enumerate(buffers):
+            avg, timestamped_buf = buffer
+            print("Trigger buff %d average: %0.2fuA" % (i, avg))
+
+
+def _save_png(data, out_file):
+    """Takes a sequence of (timestamp, measurement) rows and saves a simple
+    line graph with the given file_path.
+    """
+    labels = ['Timestamp (us)', 'Current (uA)']
+    data_frame = pandas.DataFrame.from_records(data, columns=labels)
+    lines = data_frame.plot.line(x=labels[0], y=labels[1])
+    fig = lines.get_figure()
+    fig.savefig(out_file)
+
+
+def _replace_file_suffix(file_name, suffix):
+    """Replace the .XXX suffix in file_name with suffix."""
+    return os.path.splitext(file_name)[0] + suffix
 
 
 def _connect_to_emu(args):
@@ -111,11 +141,13 @@ def _add_and_parse_args():
     parser.add_argument("-a", "--average", type=float,
                         help="print average current over time")
     parser.add_argument("-w", "--trigger_microseconds", type=int, nargs='?', default=5850,
-                        help="set trigger window in microseconds")
+                        help="set trigger window in microseconds [%d, %d]" %
+                        (ppk.API.TRIG_WINDOW_MIN_US, ppk.API.TRIG_WINDOW_MAX_US))
     parser.add_argument("-n", "--trigger_count", type=int, nargs='?', default=1,
                         help="set number of trigger buffers to capture")
     parser.add_argument("-e", "--external_vdd", type=int,
-                        help="set external regulator voltage [2100, 3600]")
+                        help="set external regulator voltage [%d, %d]" %
+                        (ppk.API.EXT_REG_MIN_MV, ppk.API.EXT_REG_MAX_MV))
     parser.add_argument("-c", "--clear_user_resistors",
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
@@ -124,6 +156,8 @@ def _add_and_parse_args():
                         help="print logging information", action="store_true")
     parser.add_argument("-o", "--out_file",
                         help="write measurement data to file", type=str)
+    parser.add_argument("-z", "--png",
+                        help="create .png graph(s) of data in out_file", action="store_true")
     parser.add_argument("-g", "--spike_filtering",
                         help="enable spike filtering", action="store_true")
     trig_group = parser.add_mutually_exclusive_group()
@@ -157,6 +191,11 @@ def _add_and_parse_args():
             print("main.py: error: invalid external voltage regulator value (%d)" %
                   args.external_vdd)
             sys.exit(-1)
+    if args.png:
+        if not args.out_file:
+            parser.print_usage()
+            print("main.py: error: out_file required to when creating .png graph(s))")
+            sys.exit(-1)
     return args
 
 def _main():
@@ -187,19 +226,21 @@ def _main():
             ppk_api.enable_spike_filtering()
 
         if args.average:
-            _measure_avg(ppk_api, args.average, args.out_file)
+            _measure_avg(ppk_api, args.average, args.out_file, args.png)
 
         if args.trigger_microamps:
             _measure_triggers(ppk_api,
                               args.trigger_microseconds,
                               args.trigger_microamps,
                               args.trigger_count,
-                              args.out_file)
+                              args.out_file,
+                              args.png)
         elif args.enable_ext_trigger:
             _measure_ext_triggers(ppk_api,
                                   args.trigger_microseconds,
                                   args.trigger_count,
-                                  args.out_file)
+                                  args.out_file,
+                                  args.png)
 
         _close_and_exit(nrfjprog_api, 0)
     except Exception as ex:

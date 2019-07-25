@@ -50,7 +50,7 @@ class API():
     EXT_REG_MIN_MV = 2100
     EXT_REG_MAX_MV = 3600
 
-    TRIG_WINDOW_MIN_US = 5850
+    TRIG_WINDOW_MIN_US = 1000
     TRIG_WINDOW_MAX_US = 52000
 
     RTT_CHANNEL_INDEX = 0
@@ -373,8 +373,8 @@ class API():
     @staticmethod
     def favg(float_seq):
         """Return the average of a sequence of floats."""
-        sum = math.fsum(float_seq)
-        return sum / len(float_seq)
+        f_sum = math.fsum(float_seq)
+        return f_sum / len(float_seq)
 
     @staticmethod
     def _parse_metadata(metadata_str):

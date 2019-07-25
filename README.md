@@ -11,7 +11,7 @@ The main features of the **ppk_api** include:
 ### Requirements
 The interface to the PPK requires Nordic's [nRF Command Line Tools](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Command-Line-Tools).
 
-Additionally, the excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) Python module can be installed from the command line using pip:
+Additionally, the excellent [nRF Pynrfjprog](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Pynrfjprog) and [pandas](https://pandas.pydata.org/) Python modules can be installed from the command line using pip:
 ```
 $ cd ppk_api
 $ pip3 install --user -r requirements.txt
@@ -21,11 +21,11 @@ $ pip3 install --user -r requirements.txt
 **main.py** provides an example of how to connect to a PPK and use the API directly. Otherwise, help is available from the command line:
 
 ```
-$ python3 main.py --help
-usage: main.py [-h] [-s SERIAL_NUMBER] [-a AVERAGE] [-t TRIGGER_MICROAMPS]
+$ python3 main.py -h
+usage: main.py [-h] [-s SERIAL_NUMBER] [-a AVERAGE]
                [-w [TRIGGER_MICROSECONDS]] [-n [TRIGGER_COUNT]]
                [-e EXTERNAL_VDD] [-c] [-p [POWER_CYCLE_DUT]] [-v]
-               [-o OUT_FILE] [-g] [-x] [-k | -f]
+               [-o OUT_FILE] [-z] [-g] [-t TRIGGER_MICROAMPS | -x] [-k | -f]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -33,10 +33,8 @@ optional arguments:
                         serial number of J-Link
   -a AVERAGE, --average AVERAGE
                         print average current over time
-  -t TRIGGER_MICROAMPS, --trigger_microamps TRIGGER_MICROAMPS
-                        set trigger threshold in microamps
   -w [TRIGGER_MICROSECONDS], --trigger_microseconds [TRIGGER_MICROSECONDS]
-                        set trigger window in microseconds
+                        set trigger window in microseconds [1000, 52000]
   -n [TRIGGER_COUNT], --trigger_count [TRIGGER_COUNT]
                         set number of trigger buffers to capture
   -e EXTERNAL_VDD, --external_vdd EXTERNAL_VDD
@@ -48,8 +46,11 @@ optional arguments:
   -v, --verbose         print logging information
   -o OUT_FILE, --out_file OUT_FILE
                         write measurement data to file
+  -z, --png             create .png graph(s) of data in out_file
   -g, --spike_filtering
                         enable spike filtering
+  -t TRIGGER_MICROAMPS, --trigger_microamps TRIGGER_MICROAMPS
+                        set trigger threshold in microamps
   -x, --enable_ext_trigger
                         enable 'TRIG IN' external trigger
   -k, --skip_verify     save time by not verifying the PPK firmware
