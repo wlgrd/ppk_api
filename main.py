@@ -103,6 +103,7 @@ def _save_png(data, out_file):
     labels = ['Timestamp (us)', 'Current (uA)']
     data_frame = pandas.DataFrame.from_records(data, columns=labels)
     lines = data_frame.plot.line(x=labels[0], y=labels[1])
+    lines.yaxis.grid(True, linestyle='--')
     fig = lines.get_figure()
     fig.savefig(out_file)
 
