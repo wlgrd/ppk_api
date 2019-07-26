@@ -10,6 +10,8 @@ import os
 import argparse
 import time
 import csv
+import json
+
 import pandas
 
 from ppk import ppk
@@ -46,9 +48,10 @@ def _close_and_exit(nrfjprog_api, status):
     sys.exit(status)
 
 
-def _measure_avg(ppk_api, time_s, out_file, draw_png):
+def _measure_avg(ppk_api, time_s, out_file, draw_png, print_json):
     """Prints the average current over the specified amount of time."""
     avg, timestamped_buf = ppk_api.measure_average(time_s)
+    graph_file = None
     if out_file:
         with open(out_file, "w", newline='') as csv_file:
             csv_writer = csv.writer(csv_file)
@@ -56,25 +59,49 @@ def _measure_avg(ppk_api, time_s, out_file, draw_png):
             for row in timestamped_buf:
                 csv_writer.writerow(row)
         if draw_png:
-            _save_png(timestamped_buf, _replace_file_suffix(out_file, '.png'))
-    print('Average: %0.2fuA' % avg)
+            graph_file = _replace_file_suffix(out_file, '.png')
+            _save_png(timestamped_buf, graph_file)
+    if not print_json:
+        print('Average: %0.2fuA' % avg)
+    else:
+        result_dict = {'OPERATION': 'AVERAGE'}
+        result_dict['RESULT'] = avg
+        result_dict['TIME_S'] = time_s
+        if out_file:
+            result_dict['OUT_FILE'] = out_file
+            if graph_file:
+                result_dict['GRAPH_FILE'] = graph_file
+        print(json.dumps(result_dict))
 
 
-def _measure_triggers(ppk_api, time_us, level_ua, count, out_file, draw_png):
+def _measure_triggers(ppk_api, time_us, level_ua, count, out_file, draw_png, print_json):
     """Acquire and process trigger buffers."""
+    json_dict = None
     buffers = ppk_api.measure_triggers(time_us, level_ua, count)
-    _process_triggers(buffers, out_file, draw_png)
+    if print_json:
+        json_dict = {'OPERATION': 'TRIGGER'}
+        json_dict['TIME_US'] = time_us
+        json_dict['LEVEL_UA'] = level_ua
+        json_dict['COUNT'] = count
+    _process_triggers(buffers, out_file, draw_png, json_dict)
 
 
-def _measure_ext_triggers(ppk_api, time_us, count, out_file, draw_png):
+def _measure_ext_triggers(ppk_api, time_us, count, out_file, draw_png, print_json):
     """Acquire and process external trigger buffers."""
+    json_dict = None
     buffers = ppk_api.measure_external_triggers(time_us, count)
-    _process_triggers(buffers, out_file, draw_png)
+    if print_json:
+        json_dict = {'OPERATION': 'TRIGGER_EXTERNAL'}
+        json_dict['TIME_US'] = time_us
+        json_dict['COUNT'] = count
+    _process_triggers(buffers, out_file, draw_png, json_dict)
 
 
-def _process_triggers(buffers, out_file, draw_png):
-    """Save the buffers if necessary and print their averages."""
+def _process_triggers(buffers, out_file, draw_png, json_dict):
+    """Save the buffers if necessary and report their averages."""
     if out_file:
+        if json_dict:
+            json_dict['OUT_FILE'] = out_file
         with open(out_file, "w", newline='') as csv_file:
             csv_writer = csv.writer(csv_file)
             csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
@@ -83,17 +110,37 @@ def _process_triggers(buffers, out_file, draw_png):
                     csv_writer.writerow(row)
         if draw_png:
             if len(buffers) == 1:
-                _save_png(buffers[0][1], _replace_file_suffix(out_file, '.png'))
+                graph_file = _replace_file_suffix(out_file, '.png')
+                _save_png(buffers[0][1], graph_file)
+                if json_dict:
+                    json_dict['GRAPH_FILE'] = graph_file
             else:
+                graph_files = []
                 for i, buffer in enumerate(buffers):
+                    graph_file = _replace_file_suffix(out_file, '_%d.png' % i)
+                    graph_files.append(graph_file)
                     avg, timestamped_buf = buffer
-                    _save_png(timestamped_buf, _replace_file_suffix(out_file, '_%d.png' % i))
+                    _save_png(timestamped_buf, graph_file)
+                if json_dict:
+                    json_dict['GRAPH_FILES'] = graph_files
     if len(buffers) == 1:
-        print("Trigger buff average: %0.2fuA" % buffers[0][0])
+        result = buffers[0][0]
+        if json_dict:
+            json_dict['RESULT'] = result
+            print(json.dumps(json_dict))
+        else:
+            print("Trigger buff average: %0.2fuA" % result)
     else:
+        results = []
         for i, buffer in enumerate(buffers):
             avg, timestamped_buf = buffer
-            print("Trigger buff %d average: %0.2fuA" % (i, avg))
+            if json_dict:
+                results.append(avg)
+            else:
+                print("Trigger buff %d average: %0.2fuA" % (i, avg))
+        if json_dict:
+            json_dict['RESULTS'] = results
+            print(json.dumps(json_dict))
 
 
 def _save_png(data, out_file):
@@ -153,8 +200,6 @@ def _add_and_parse_args():
                         help="clear user calibration resistors", action="store_true")
     parser.add_argument("-p", "--power_cycle_dut",
                         help="power cycle the DUT and delay", nargs='?', const=0, type=float)
-    parser.add_argument("-v", "--verbose",
-                        help="print logging information", action="store_true")
     parser.add_argument("-o", "--out_file",
                         help="write measurement data to file", type=str)
     parser.add_argument("-z", "--png",
@@ -173,6 +218,12 @@ def _add_and_parse_args():
     fw_group.add_argument("-f", "--force",
                           help="program the PPK firmware if necessary",
                           action="store_true")
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("-v", "--verbose",
+                              help="print logging information", action="store_true")
+    output_group.add_argument("-j", "--json",
+                              help="print output as parsable JSON",
+                              action="store_true")
     args = parser.parse_args()
     if not args.trigger_microamps and not args.enable_ext_trigger:
         if not args.average:
@@ -198,6 +249,7 @@ def _add_and_parse_args():
             print("main.py: error: out_file required to when creating .png graph(s))")
             sys.exit(-1)
     return args
+
 
 def _main():
     """Parses arguments for the PPK CLI."""
@@ -227,7 +279,11 @@ def _main():
             ppk_api.enable_spike_filtering()
 
         if args.average:
-            _measure_avg(ppk_api, args.average, args.out_file, args.png)
+            _measure_avg(ppk_api,
+                         args.average,
+                         args.out_file,
+                         args.png,
+                         args.json)
 
         if args.trigger_microamps:
             _measure_triggers(ppk_api,
@@ -235,13 +291,15 @@ def _main():
                               args.trigger_microamps,
                               args.trigger_count,
                               args.out_file,
-                              args.png)
+                              args.png,
+                              args.json)
         elif args.enable_ext_trigger:
             _measure_ext_triggers(ppk_api,
                                   args.trigger_microseconds,
                                   args.trigger_count,
                                   args.out_file,
-                                  args.png)
+                                  args.png,
+                                  args.json)
 
         _close_and_exit(nrfjprog_api, 0)
     except Exception as ex:
