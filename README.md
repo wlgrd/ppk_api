@@ -24,8 +24,8 @@ $ pip3 install --user -r requirements.txt
 $ python3 main.py -h
 usage: main.py [-h] [-s SERIAL_NUMBER] [-a AVERAGE]
                [-w [TRIGGER_MICROSECONDS]] [-n [TRIGGER_COUNT]]
-               [-e EXTERNAL_VDD] [-c] [-p [POWER_CYCLE_DUT]] [-v]
-               [-o OUT_FILE] [-z] [-g] [-t TRIGGER_MICROAMPS | -x] [-k | -f]
+               [-e EXTERNAL_VDD] [-c] [-p [POWER_CYCLE_DUT]] [-o OUT_FILE]
+               [-z] [-g] [-t TRIGGER_MICROAMPS | -x] [-k | -f] [-v | -j]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -43,7 +43,6 @@ optional arguments:
                         clear user calibration resistors
   -p [POWER_CYCLE_DUT], --power_cycle_dut [POWER_CYCLE_DUT]
                         power cycle the DUT and delay
-  -v, --verbose         print logging information
   -o OUT_FILE, --out_file OUT_FILE
                         write measurement data to file
   -z, --png             create .png graph(s) of data in out_file
@@ -55,6 +54,8 @@ optional arguments:
                         enable 'TRIG IN' external trigger
   -k, --skip_verify     save time by not verifying the PPK firmware
   -f, --force           program the PPK firmware if necessary
+  -v, --verbose         print logging information
+  -j, --json            print output as parsable JSON
 ```
 By default, the CLI will verify that the PPK has been programmed with the included PPK firmware every time it starts. If the firmware is not found then an error message is generated and the program exits. The **--force** option can be used to automatically reprogram the PPK without generating an error. The firmware verification can be skipped entirely using the **--skip_verify** option.
 
@@ -97,6 +98,18 @@ Timestamp (us),Current (uA)
 And if the **--png** option is used along with **--out_file** then a graph will also be created: 
 ![trig_data](https://user-images.githubusercontent.com/6494431/61916106-0a575d00-aefc-11e9-81df-b2e9910378c7.png)
 
+Finally, if the output needs to be parsed by another program then the **--json** will print the results as a serialized Python dictionary:
+```
+{
+  "OPERATION": "TRIGGER",
+  "TIME_US": 5850,
+  "LEVEL_UA": 3000,
+  "COUNT": 10,
+  "RESULTS": [4359.023896228546, 2226.708058096206, 4638.010247289973, 4627.402149672538, 4607.641535399729, 2189.0614413956637, 4601.620723238482, 4627.380095415538, 4624.689476061427, 4626.365599593496],
+  "GRAPH_FILES": ["data/trig_data_0.png", "data/trig_data_1.png", "data/trig_data_2.png", "data/trig_data_3.png", "data/trig_data_4.png", "data/trig_data_5.png", "data/trig_data_6.png", "data/trig_data_7.png", "data/trig_data_8.png", "data/trig_data_9.png"],
+  "OUT_FILE": "data/trig_data.csv"
+}
+```
 **NOTE:** The **--external_vdd** option is only recommended for use when the DUT is an external device that is being powered by 'External DUT' pins. See the [PPK documentation](https://infocenter.nordicsemi.com/index.jsp?topic=%2Fug_ppk%2FUG%2Fppk%2FPPK_user_guide_Intro.html&cp=6_6&tags=Power+Profiler+Kit) for more information.
 
 **NOTE:** When a connection to the PPK is established a soft reset is performed on the PPK to put its firmware into a known state. The side effect of this action is that the DUT experiences a power cycle. **This can lead to confusion if the DUT needs a certain amount of time to boot before it's ready to be measured or a stateful action needs to be performed (e.g. pushing a button on the DUT to enter a mode).** If this is the case then the **--power_cycle_dut** option can be used to provide a deterministic delay (in seconds) between the DUT being reset and the start of the measurement.
