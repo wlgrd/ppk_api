@@ -96,7 +96,7 @@ Timestamp (us),Current (uA)
 ...
 ```
 And if the **--png** option is used along with **--out_file** then a graph will also be created: 
-![trig_data](https://user-images.githubusercontent.com/6494431/61916106-0a575d00-aefc-11e9-81df-b2e9910378c7.png)
+![trig_data_3](https://user-images.githubusercontent.com/6494431/61987885-2bd54900-afcf-11e9-9b25-e5f1758c913a.png)
 
 Finally, if the output needs to be parsed by another program then the **--json** will print the results as a serialized Python dictionary:
 ```
