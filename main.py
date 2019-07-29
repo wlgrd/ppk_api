@@ -60,7 +60,7 @@ def _measure_avg(ppk_api, time_s, out_file, draw_png, print_json):
                 csv_writer.writerow(row)
         if draw_png:
             graph_file = _replace_file_suffix(out_file, '.png')
-            _save_png(timestamped_buf, graph_file)
+            _save_png(avg, timestamped_buf, graph_file)
     if not print_json:
         print('Average: %0.2fuA' % avg)
     else:
@@ -111,7 +111,8 @@ def _process_triggers(buffers, out_file, draw_png, json_dict):
         if draw_png:
             if len(buffers) == 1:
                 graph_file = _replace_file_suffix(out_file, '.png')
-                _save_png(buffers[0][1], graph_file)
+                avg, data = buffers[0]
+                _save_png(avg, data, graph_file)
                 if json_dict:
                     json_dict['GRAPH_FILE'] = graph_file
             else:
@@ -120,7 +121,7 @@ def _process_triggers(buffers, out_file, draw_png, json_dict):
                     graph_file = _replace_file_suffix(out_file, '_%d.png' % i)
                     graph_files.append(graph_file)
                     avg, timestamped_buf = buffer
-                    _save_png(timestamped_buf, graph_file)
+                    _save_png(avg, timestamped_buf, graph_file)
                 if json_dict:
                     json_dict['GRAPH_FILES'] = graph_files
     if len(buffers) == 1:
@@ -143,11 +144,11 @@ def _process_triggers(buffers, out_file, draw_png, json_dict):
             print(json.dumps(json_dict))
 
 
-def _save_png(data, out_file):
+def _save_png(avg, data, out_file):
     """Takes a sequence of (timestamp, measurement) rows and saves a simple
     line graph with the given file_path.
     """
-    labels = ['Timestamp (us)', 'Current (uA)']
+    labels = ['Timestamp (us)', ('Current (uA)\nAVG: %0.2fuA' % avg)]
     data_frame = pandas.DataFrame.from_records(data, columns=labels)
     lines = data_frame.plot.line(x=labels[0], y=labels[1])
     lines.yaxis.grid(True, linestyle='--')
