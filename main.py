@@ -90,4 +90,5 @@ print(np.average(result))
 if(smu_enabled):
     smu.output_disable()
 
-
+rtt.disconnect_from_emu()
+rtt.close()

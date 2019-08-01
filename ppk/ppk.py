@@ -60,6 +60,9 @@ TASKS_TRIGGER13_OFFSET = 52
 TASKS_TRIGGER14_OFFSET = 56
 TASKS_TRIGGER15_OFFSET = 60
 
+VDD_SET_MIN = 2100
+VDD_SET_MAX = 3600
+
 def debug_print(line):
     if(DEBUG):
         print(line)
@@ -247,8 +250,13 @@ class API():
 
     def vdd_set(self, vdd):
         self.log("Setting VDD to %d" %vdd)
+
+        # Setting voltages above or below these values can cause the emu connection to stall.
+        if (VDD_SET_MIN > vdd) or (VDD_SET_MAX < vdd):
+            raise PPKError("Invalid vdd given to vdd_set (%d)." % vdd)
+
         target_vdd = vdd
-        while (self.m_vdd != target_vdd):
+        while (True):
             if (target_vdd > self.m_vdd):
                 new = self.m_vdd + 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
             else:
@@ -261,6 +269,12 @@ class API():
                 self.log("VDD set")
             except:
                 self.log("Failed to write vdd")
+
+            # A short delay between calls to write_stuffed improves stability.
+            if self.m_vdd == target_vdd:
+                break
+            else:
+                time.sleep(0.25)
 
     def clear_user_resistors(self):
         self.write_stuffed([RTT_COMMANDS.RTT_CMD_CLEAR_RES_USER])
