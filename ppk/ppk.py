@@ -255,26 +255,14 @@ class API():
         if (VDD_SET_MIN > vdd) or (VDD_SET_MAX < vdd):
             raise PPKError("Invalid vdd given to vdd_set (%d)." % vdd)
 
-        target_vdd = vdd
-        while (True):
-            if (target_vdd > self.m_vdd):
-                new = self.m_vdd + 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
-            else:
-                new = self.m_vdd - 100 if abs(target_vdd - self.m_vdd) > 100 else target_vdd
-            vdd_high_byte = new >> 8
-            vdd_low_byte = new & 0xFF
-            try:
-                self.write_stuffed([RTT_COMMANDS.RTT_CMD_SETVDD, vdd_high_byte, vdd_low_byte])
-                self.m_vdd = new
-                self.log("VDD set")
-            except:
-                self.log("Failed to write vdd")
-
-            # A short delay between calls to write_stuffed improves stability.
-            if self.m_vdd == target_vdd:
-                break
-            else:
-                time.sleep(0.25)
+        vdd_high_byte = vdd >> 8
+        vdd_low_byte = vdd & 0xFF
+        try:
+            self.write_stuffed([RTT_COMMANDS.RTT_CMD_SETVDD, vdd_high_byte, vdd_low_byte])
+            self.m_vdd = vdd
+            self.log("VDD set")
+        except:
+            self.log("Failed to write vdd")
 
     def clear_user_resistors(self):
         self.write_stuffed([RTT_COMMANDS.RTT_CMD_CLEAR_RES_USER])
@@ -342,7 +330,6 @@ class API():
         """
         # adc_val = 0
         if (len(data) == 4):
-            # print('average received')
             s = ''.join([chr(b) for b in data])
 
             f = struct.unpack('f', bytearray(data))[0]
@@ -436,7 +423,7 @@ class API():
 
     def handleBytes(self, byte):
         # print('Handle byte: ' + str(byte))
-        
+
         if self.read_mode == MODE_RECV:
             ''' Mode Receiving - Receiving data '''
             if byte == ESC:
@@ -463,10 +450,8 @@ class API():
                 data = self.nrfjprog.rtt_read(0, 100, encoding=None)
                 if data != '':
                     for byte in data:
-                        # print('RAW: ' + str(byte))
                         self.handleBytes(byte)
 
-                        
         except Exception:
             pass
             self.alive = False
