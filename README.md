@@ -107,7 +107,7 @@ Finally, if the output needs to be parsed by another program then the **--json**
   "COUNT": 10,
   "RESULTS": [4359.023896228546, 2226.708058096206, 4638.010247289973, 4627.402149672538, 4607.641535399729, 2189.0614413956637, 4601.620723238482, 4627.380095415538, 4624.689476061427, 4626.365599593496],
   "GRAPH_FILES": ["data/trig_data_0.png", "data/trig_data_1.png", "data/trig_data_2.png", "data/trig_data_3.png", "data/trig_data_4.png", "data/trig_data_5.png", "data/trig_data_6.png", "data/trig_data_7.png", "data/trig_data_8.png", "data/trig_data_9.png"],
-  "OUT_FILE": "data/trig_data.csv"
+  "CSV_FILE": "data/trig_data.csv"
 }
 ```
 **NOTE:** The **--external_vdd** option is only recommended for use when the DUT is an external device that is being powered by 'External DUT' pins. See the [PPK documentation](https://infocenter.nordicsemi.com/index.jsp?topic=%2Fug_ppk%2FUG%2Fppk%2FPPK_user_guide_Intro.html&cp=6_6&tags=Power+Profiler+Kit) for more information.
