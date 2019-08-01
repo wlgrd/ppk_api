@@ -52,9 +52,11 @@ def _measure_avg(ppk_api, time_s, out_file, draw_png, print_json):
     """Prints the average current over the specified amount of time."""
     avg, timestamped_buf = ppk_api.measure_average(time_s)
     graph_file = None
+    csv_file = None
     if out_file:
-        with open(out_file, "w", newline='') as csv_file:
-            csv_writer = csv.writer(csv_file)
+        csv_file = _replace_file_suffix(out_file, '.csv')
+        with open(csv_file, "w", newline='') as data_file:
+            csv_writer = csv.writer(data_file)
             csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
             for row in timestamped_buf:
                 csv_writer.writerow(row)
@@ -67,8 +69,8 @@ def _measure_avg(ppk_api, time_s, out_file, draw_png, print_json):
         result_dict = {'OPERATION': 'AVERAGE'}
         result_dict['RESULT'] = avg
         result_dict['TIME_S'] = time_s
-        if out_file:
-            result_dict['OUT_FILE'] = out_file
+        if csv_file:
+            result_dict['CSV_FILE'] = csv_file
             if graph_file:
                 result_dict['GRAPH_FILE'] = graph_file
         print(json.dumps(result_dict))
@@ -100,10 +102,11 @@ def _measure_ext_triggers(ppk_api, time_us, count, out_file, draw_png, print_jso
 def _process_triggers(buffers, out_file, draw_png, json_dict):
     """Save the buffers if necessary and report their averages."""
     if out_file:
+        csv_file = _replace_file_suffix(out_file, '.csv')
         if json_dict:
-            json_dict['OUT_FILE'] = out_file
-        with open(out_file, "w", newline='') as csv_file:
-            csv_writer = csv.writer(csv_file)
+            json_dict['CSV_FILE'] = csv_file
+        with open(csv_file, "w", newline='') as data_file:
+            csv_writer = csv.writer(data_file)
             csv_writer.writerow(("Timestamp (us)", "Current (uA)"))
             for avg, timestamped_buf in buffers:
                 for row in timestamped_buf:
