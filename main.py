@@ -263,7 +263,7 @@ def _main():
         ppk_api.connect()
 
         if args.external_vdd:
-            ppk_api.vdd_set(args.external_vdd)
+            ppk_api.set_external_reg_vdd(args.external_vdd)
 
         if args.clear_user_resistors:
             ppk_api.clear_user_resistors()
