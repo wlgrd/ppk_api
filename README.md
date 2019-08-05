@@ -1,9 +1,3 @@
-
-This is a first shot at an API for the Nordic Semiconductor Power Profiler Kit.
-It is by no means finished, but will work for the basics. PR's are encouraged!
-
-Current version is tested with python 2.7.12, 64bit on Windows 10.
-=======
 Nordic Semiconductor's [Power Profiler Kit (PPK)](https://www.nordicsemi.com/Software-and-Tools/Development-Kits/Power-Profiler-Kit) is very useful for measuring and optimizing power consumption when developing battery-powered devices. Although the [nRF Connect for Desktop](https://www.nordicsemi.com/Software-and-Tools/Development-Tools/nRF-Connect-for-desktop) application provides a friendly GUI, it has limited support for logging measurement data and isn't accessible from a command line. The purpose of this library is to make the PPK more useful for logging and integration into automated testing/continuous integration systems.
 
 ### Features

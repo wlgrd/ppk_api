@@ -19,7 +19,7 @@ import pynrfjprog
 from pynrfjprog import API, Hex
 
 
-HEX_FILE_PATH = os.path.sep.join((".", "hex", "ppk_nrfconnect.hex"))
+HEX_FILE_PATH = os.path.sep.join((".", "hex", "ppk.hex"))
 
 
 def _verify_firmware(nrfjprog_api, fw_hex):

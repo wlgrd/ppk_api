@@ -180,21 +180,10 @@ class API():
         # Setting voltages above or below these values can cause the emu connection to stall.
         if (self.EXT_REG_MIN_MV > vdd) or (self.EXT_REG_MAX_MV < vdd):
             raise PPKError("Invalid vdd given to set_external_reg_vdd: (%d)." % vdd)
-        target_vdd = vdd
-        while True:
-            if target_vdd > self._vdd:
-                next_vdd = self._vdd + 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
-            else:
-                next_vdd = self._vdd - 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
-            vdd_high_byte = next_vdd >> 8
-            vdd_low_byte = next_vdd & 0xFF
-            self._write_ppk_cmd([RTTCommand.REGULATOR_SET, vdd_high_byte, vdd_low_byte])
-            self._vdd = next_vdd
-            # A short delay between calls to _write_ppk_cmd improves stability.
-            if self._vdd == target_vdd:
-                break
-            else:
-                time.sleep(self.PPK_CMD_WRITE_DELAY)
+        vdd_high_byte = vdd >> 8
+        vdd_low_byte = vdd & 0xFF
+        self._write_ppk_cmd([RTTCommand.REGULATOR_SET, vdd_high_byte, vdd_low_byte])
+        self._vdd = vdd
 
     def set_trigger_window(self, time_us):
         """Set the trigger window. This is the dataset transferred
