@@ -1,474 +1,580 @@
+"""
+Handles communication with Nordic Power Profiler Kit (PPK) hardware
+using Segger's Real-Time Transfer functionality.
+"""
 import time
 import struct
-import sys
 import re
-import numpy as np
 import math
-from enum import Enum
-from pynrfjprog import API as nrfapi
-import threading
 
-DEBUG = False
-
-SAMPLE_INTERVAL_US = 13e-6
-SAMPLE_INTERVAL_MS = 13e-3
-
-SAMPLE_INTERVAL = 13.0e-6
-ADC_REF = 0.6
-ADC_GAIN = 4.0
-ADC_MAX = 8192.0
-
-MEAS_RES_HI = 1.8
-MEAS_RES_MID = 28.0
-MEAS_RES_LO = 500.0
-
-STX = 0x02
-ETX = 0x03
-ESC = 0x1F
-
-MODE_IDLE = 0
-MODE_RECV = 1
-MODE_ESC_RECV = 2
-
-MEAS_RANGE_NONE = 0
-MEAS_RANGE_LO = 1
-MEAS_RANGE_MID = 2
-MEAS_RANGE_HI = 3
-MEAS_RANGE_INVALID = 4
-
-MEAS_RANGE_POS = 14
-MEAS_RANGE_MSK = (3 << 14)
-
-MEAS_ADC_POS = 0
-MEAS_ADC_MSK = 0x3FFF
-
-NRF_EGU0_BASE          = 0x40014000
-TASKS_TRIGGER0_OFFSET  = 0
-TASKS_TRIGGER1_OFFSET  = 4
-TASKS_TRIGGER2_OFFSET  = 8
-TASKS_TRIGGER3_OFFSET  = 12
-TASKS_TRIGGER4_OFFSET  = 16
-TASKS_TRIGGER5_OFFSET  = 20
-TASKS_TRIGGER6_OFFSET  = 24
-TASKS_TRIGGER7_OFFSET  = 28
-TASKS_TRIGGER8_OFFSET  = 32
-TASKS_TRIGGER9_OFFSET  = 36
-TASKS_TRIGGER10_OFFSET = 40
-TASKS_TRIGGER11_OFFSET = 44
-TASKS_TRIGGER12_OFFSET = 48
-TASKS_TRIGGER13_OFFSET = 52
-TASKS_TRIGGER14_OFFSET = 56
-TASKS_TRIGGER15_OFFSET = 60
-
-VDD_SET_MIN = 2100
-VDD_SET_MAX = 3600
-
-def debug_print(line):
-    if(DEBUG):
-        print(line)
-    else:
-        pass
 
 class PPKError(Exception):
-    """
-    PPK exception class, inherits from the built-in Exception class.
-
-    """
+    """PPK exception class, inherits from the built-in Exception class."""
 
     def __init__(self, error=None):
-        """
-        Constructs a new object and sets the error.
-        """
+        """Constructs a new object and sets the error."""
         self.error = error
         err_str = 'PPK error: {}'.format(self.error)
-
-
         Exception.__init__(self, err_str)
 
-class RTT_COMMANDS():
-    RTT_CMD_TRIGGER_SET         = 0x01 # following trigger of type int16
-    RTT_CMD_AVG_NUM_SET         = 0x02 # Number of samples x16 to average over
-    RTT_CMD_TRIG_WINDOW_SET     = 0x03 # following window of type unt16
-    RTT_CMD_TRIG_INTERVAL_SET   = 0x04 #
-    RTT_CMD_SINGLE_TRIG         = 0x05
-    RTT_CMD_RUN                 = 0x06
-    RTT_CMD_STOP                = 0x07
-    RTT_CMD_RANGE_SET           = 0x08
-    RTT_CMD_LCD_SET             = 0x09
-    RTT_CMD_TRIG_STOP           = 0x0A
-    RTT_CMD_CALIBRATE_OFFSET    = 0x0B
-    RTT_CMD_DUT                 = 0x0C
-    RTT_CMD_SETVDD              = 0x0D
-    RTT_CMD_SETVREFLO           = 0x0E
-    RTT_CMD_SETVREFHI           = 0x0F
-    RTT_CMD_SET_RES             = 0x10
-    RTT_CMD_CLEAR_RES_USER      = 0x13
-    RTT_CMD_CLEAR_RES_CAL       = 0x14
+
+class RTTCommand():
+    """RTT command opcodes."""
+    TRIG_SET = 0x01
+    TRIG_WINDOW_SET = 0x03
+    TRIG_SINGLE_SET = 0x05
+    AVERAGE_START = 0x06
+    AVERAGE_STOP = 0x07
+    TRIG_STOP = 0x0A
+    DUT_TOGGLE = 0x0C
+    REGULATOR_SET = 0x0D
+    VREF_LO_SET = 0x0E
+    VREF_HI_SET = 0x0F
+    EXT_TRIG_IN_TOGGLE = 0x11
+    RES_USER_SET = 0x12
+    RES_USER_CLEAR = 0x13
+    SPIKE_FILTER_ON = 0x15
+    SPIKE_FILTER_OFF = 0x16
+
 
 class API():
+    """The PPK API takes care of rtt connection to the ppk, reading average
+    current consumption, starting and stopping etc.
     """
-        The PPK API takes care of rtt connection to the ppk, reading average
-        current consumption, starting and stopping etc.
+    ADC_SAMPLING_TIME_US = 13
+    SAMPLES_PER_AVERAGE = 10
+    AVERAGE_TIME_US = (SAMPLES_PER_AVERAGE * ADC_SAMPLING_TIME_US)
+    TRIGGER_SAMPLES_PER_SECOND = (1e6 / ADC_SAMPLING_TIME_US)
+    AVERAGE_SAMPLES_PER_SECOND = (1e6 / AVERAGE_TIME_US)
 
-        @param int rtt_instance : Instance to a pynrfjprog API object
-        @param logprint         : Turn on/off logging for the module
-    """
-    def __init__(self, rtt_instance, logprint=True):
-        self.DATA_TYPE_TRIGGER = 0
-        self.DATA_TYPE_AVERAGE = 1
+    EXT_REG_MIN_MV = 2100
+    EXT_REG_MAX_MV = 3600
 
-        self.nrfjprog = rtt_instance
-        self.alive = False
-        self.logprint = logprint        # Connect to instrument
-        self.current_meas_range = 0  # Dummy setting
-        self.board_id = None
-        self.trigger_buffer = []
-        self.trigger_buffer_size = 0
-        self.trigger_data_captured = 0
-        self.avg_buffer = []
-        self.avg_timeout = 0
-        self.finished = False
-        self.m_vdd = 3000
-        self.connected = False
-        self.read_mode = MODE_RECV
-        self.data_buffer = []
+    TRIG_WINDOW_MIN_US = 1000
+    TRIG_WINDOW_MAX_US = 52000
 
-    def _get_metadata(self, rttdata):
-        self.log("Metadata: " + rttdata)
-        restring = ('').join([
-            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
-            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
-            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
-            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
-        ])
+    RTT_CHANNEL_INDEX = 0
+    RTT_READ_BUF_LEN = 500
 
-        # Parse the given data using the regex restring
-        result = (re.split(restring, rttdata))
-        return(result[1:13])
+    PPK_CMD_WRITE_DELAY = 0.25
 
-    def log(self, logstring):
-        pass
-        if (self.logprint == True):
-            print("PPK: %s" % str(logstring))
-
-    def get_connected_board_id(self):
-        if self.board_id == None:
-            raise PPKError("Board ID not read at connect")
-        return self.board_id
-
-    def disconnect_api(self):
-        pass
-        #self.nrfjprog.disconnect()
+    def __init__(self, nrfjprog_api, logprint=True):
+        """A stateful interface to a Nordic Power Profiler Kit."""
+        self.nrfjprog_api = nrfjprog_api
+        self.logprint = logprint
+        self._connected = False
+        self._ext_trig_enabled = False
+        self._vdd = None
+        self._metadata = None
+        self._resistors = None
 
     def connect(self):
-        try:
-            self.nrfjprog.sys_reset()
-        except AttributeError:
-            pass
-        self.nrfjprog.go()
-        self.nrfjprog.rtt_start()
-        while( not self.nrfjprog.rtt_is_control_block_found()):
+        """Connect to the PPK and gather metadata."""
+        self.nrfjprog_api.sys_reset()
+        self.nrfjprog_api.go()
+        self.nrfjprog_api.rtt_start()
+        while not self.nrfjprog_api.rtt_is_control_block_found():
             continue
-        try:
-            time.sleep(0.5)
-            data = self.nrfjprog.rtt_read(0,200)
-            version, calibrationDone, resLow, resMid, resHi, boardID, userResLow, userResMid, userRedHi, vdd, vrefHigh, vrefLow = self._get_metadata(data)
-
-            self.calibration_data = [resLow, resMid, resHi]
-            self.board_id = boardID
-            self.m_vdd = int(vdd)
-            self.connected = True
-        except Exception as e:
-            raise PPKError("Could not read Board ID, %s" % str(e))
-        return self.calibration_data
-
-    def rtt_stop(self):
-        self.nrfjprog.rtt_stop()
-
+        # Allow the PPK firmware to start.
+        time.sleep(0.9)
+        metadata = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX, self.RTT_READ_BUF_LEN)
+        self._metadata = self._parse_metadata(metadata)
+        self._log(self._metadata)
+        self._vdd = int(self._metadata["VDD"])
+        if self._metadata['USER_R1']:
+            self._resistors = [float(self._metadata['USER_R1']),
+                               float(self._metadata['USER_R2']),
+                               float(self._metadata['USER_R3'])]
+        else:
+            self._resistors = [float(self._metadata['R1']),
+                               float(self._metadata['R2']),
+                               float(self._metadata['R3'])]
+        self._log("Resistors: LO: %s, MID: %s, HI: %s" % (self._resistors[0],
+                                                          self._resistors[1],
+                                                          self._resistors[2]))
+        self._connected = True
 
     def reset_connection(self):
-        self.nrfjprog.rtt_stop()
-        self.nrfjprog.sys_reset()
-        self.nrfjprog.go()
-        self.nrfjprog.rtt_start()
-        while( not self.nrfjprog.rtt_is_control_block_found):
-            continue
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_RUN])
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_AVG_NUM_SET, 0x00, 1])
-        return True
+        """Stop RTT, flush it, and then connect to the PPK again."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self.nrfjprog_api.rtt_stop()
+        self._flush_rtt()
+        self.connect()
 
-    def dut_power_on(self):
-        self.log("DUT power on")
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_DUT, 1])
+    def get_metadata(self):
+        """Return a copy of the PPK metadata that is read at the start of the connection."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        return self._metadata.copy()
 
-    def dut_power_off(self):
-        self.log("DUT power off")
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_DUT, 0])
+    def enable_dut_power(self):
+        """Turn DUT power on."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("DUT power on.")
+        self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 1])
 
-    def trigger_acquisition_time_set(self, time):
-        """ Set the acquisition window in ms
-            This is the dataset transferred upon every trigger
-            from the PPK.
-        """
-        self.trigger_buffer_size = int(time/SAMPLE_INTERVAL_MS + 1)
-        buffer_size_high = (self.trigger_buffer_size >> 8) & 0xFF
-        buffer_size_low = self.trigger_buffer_size & 0xFF
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_TRIG_WINDOW_SET, buffer_size_high, buffer_size_low])
-        self.log("Set acqusition time %d (buffer size:%d)" %(time, self.trigger_buffer_size))
-
-
-    def trigger_value_set(self, trigger):
-        """ Set the trigger value in uA
-            The trigger will send data if this value is reached
-        """
-        high = (trigger >> 16) & 0xFF
-        mid = (trigger >> 8) & 0xFF
-        low = trigger & 0xFF
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_TRIGGER_SET, high, mid, low])
-        self.log("Trigger set to %d" % trigger)
-
-    def trigger_stop(self):
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_TRIG_STOP])
-
-    def average_acquisition_time_set(self, milliseconds=0):
-        """ Set the aquisition time in milliseconds
-            The time an average consumption should use before finishing
-
-            param @milliseconds Timeout value in ms
-                                0 = infinite
-        """
-        self.avg_timeout = milliseconds
-
-    def average_measurement_start(self):
-        self.log("Starting average measurement...")
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_RUN])
-
-    def average_measurement_stop(self):
-        self.log("Stopping average measurement")
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_STOP])
-        self.clear_measurement_data(self.DATA_TYPE_AVERAGE)
-
-    def vdd_set(self, vdd):
-        self.log("Setting VDD to %d" %vdd)
-
-        # Setting voltages above or below these values can cause the emu connection to stall.
-        if (VDD_SET_MIN > vdd) or (VDD_SET_MAX < vdd):
-            raise PPKError("Invalid vdd given to vdd_set (%d)." % vdd)
-
-        vdd_high_byte = vdd >> 8
-        vdd_low_byte = vdd & 0xFF
-        try:
-            self.write_stuffed([RTT_COMMANDS.RTT_CMD_SETVDD, vdd_high_byte, vdd_low_byte])
-            self.m_vdd = vdd
-            self.log("VDD set")
-        except:
-            self.log("Failed to write vdd")
+    def disable_dut_power(self):
+        """Turn DUT power off."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("DUT power off.")
+        self._write_ppk_cmd([RTTCommand.DUT_TOGGLE, 0])
 
     def clear_user_resistors(self):
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_CLEAR_RES_USER])
+        """Clear user resistors."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Clearing user resistors.")
+        self._resistors = [float(self._metadata['R1']),
+                           float(self._metadata['R2']),
+                           float(self._metadata['R3'])]
+        self._write_ppk_cmd([RTTCommand.RES_USER_CLEAR])
 
-    def clear_cal_resistors(self):
-        print("Clearing calibration resistors")
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_CLEAR_RES_CAL])
-
-    def write_new_resistors(self, resistors):
+    def set_user_resistors(self, user_r1, user_r2, user_r3):
+        """Set USER_R1, USER_R2, and USER_R3 resistors. Values should
+        be floats and will be packed into four bytes.
         """
-        resistors[0] = r1 = low measurements (~510)
-        resistors[1] = r2 = mid measurements (~31)
-        resistors[2] = r3 = high measurements (~1.8)
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Set user resistors: %.3f, %.3f, %.3f." % (user_r1, user_r2, user_r3))
+        self._resistors = [user_r1, user_r2, user_r3]
+        cmd = [RTTCommand.RES_USER_SET]
+        cmd.extend(struct.pack('f', user_r1))
+        cmd.extend(struct.pack('f', user_r2))
+        cmd.extend(struct.pack('f', user_r3))
+        self._write_ppk_cmd(cmd)
+
+    def enable_spike_filtering(self):
+        """Enable spike filtering feature.
+
+        When this is turned on, the PPK software will filter data directly
+        after an automatic range switch. This will limit unwanted spikes
+        due to rapid switching, but may also remove short current spikes
+        that might be of significance.
         """
-        r1_list = []
-        r2_list = []
-        r3_list = []
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Enabling spike filtering.")
+        self._write_ppk_cmd([RTTCommand.SPIKE_FILTER_ON])
 
-        # if (resistors[1] >=32.5 and resistors[1] < 33):
-        #     self.log("Changing resistor value")
-        #     resistors[1] = 32.4
+    def disable_spike_filtering(self):
+        """Disable spike filtering feature."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Disabling spike filtering.")
+        self._write_ppk_cmd([RTTCommand.SPIKE_FILTER_OFF])
 
-        print ("writing %.3f, %.3f, %.3f" %(resistors[0],
-                                            resistors[1],
-                                            resistors[2]))
-        # Pack the floats
-        bufr1 = struct.pack('f', resistors[0])
-        bufr2 = struct.pack('f', resistors[1])
-        bufr3 = struct.pack('f', resistors[2])
-        # PPK receives byte packages, put them in a list
-        for b in bufr1:
-            r1_list.append(b)
-        for b in bufr2:
-            r2_list.append(b)
-        for b in bufr3:
-            r3_list.append(b)
+    def set_external_reg_vdd(self, vdd):
+        """Set VDD of external voltage regulator.
 
-        # Write the floats to PPK
-        self.write_stuffed([RTT_COMMANDS.RTT_CMD_SET_RES,
-                            (r1_list[0]), (r1_list[1]), (r1_list[2]), (r1_list[3]),
-                            (r2_list[0]), (r2_list[1]), (r2_list[2]), ( r2_list[3]),
-                            (r3_list[0]), (r3_list[1]), (r3_list[2]), ( r3_list[3])
-                        ])
-
-    def measurement_readout_start(self):
-        try:
-            self.timeout = threading.Thread(target=self.t_read)
-            self.timeout.setDaemon(True)
-            self.timeout.start()
-            while( not self.nrfjprog.rtt_is_control_block_found()):
-                continue
-            self.log("Starting readout")
-            self.alive = True
-            self.read_thread_start()
-        except:
-            raise
-
-    def measurement_readout_stop(self):
-        self.log("Stopping readout")
-        self.alive = False
-        self.nrfjprog.rtt_stop()
-
-    def _stream_handler(self, data):
-        """ Function called when data ready on RTT
+        This is only recommended when using an external DUT (i.e. not the DK with a PPK
+        sitting on top of it). The DUT should be powered via the 'External DUT' pins.
+        The 'DUT Select' switch should be set to 'External'. The 'Power Select'
+        switch should be set to 'Reg.'.
         """
-        # adc_val = 0
-        if (len(data) == 4):
-            s = ''.join([chr(b) for b in data])
-
-            f = struct.unpack('f', bytearray(data))[0]
-            if math.isnan(f):
-                self.log("Test failed, no data received from board")
-                raise PPKError("Got invalid data from average set")
-            self.average_data_handler(f)
-
-        # elif (len(data) == 5):
-        #     print("timestamp received: " + data)
-
-        # elif (len(data) == 6):
-        #     print("timestamp received: " + data)
-
-        # else:
-        #     print("===================trigger======================")
-        #     for i in range(0, len(data), 2):
-        #         if (i + 1) < len(data):
-        #             tmp = np.uint16((data[i + 1] << 8) + data[i])
-        #             self.current_meas_range = (tmp & MEAS_RANGE_MSK) >> MEAS_RANGE_POS
-        #             adc_val = (tmp & MEAS_ADC_MSK) >> MEAS_ADC_POS
-        #             self.trigger_data_handler(adc_val, self.current_meas_range)
-
-
-
-    def average_data_handler(self, data):
-        """ Gets called when average data is available
-
-            @int data   Average sample in microamps
-        """
-
-        self.measurement_data_callback(data, self.DATA_TYPE_AVERAGE)
-
-    def trigger_data_handler(self, val, range):
-        adc_val = 0
-
-        if (self.trigger_data_captured >= self.trigger_buffer_size):
-            self.log("Trigger buffer full")
-            self.trigger_stop()
-            self.alive = False
-            self.data_callback(self.trigger_buffer, self.DATA_TYPE_TRIGGER)
-            self.trigger_data_captured = 0
-            self.trigger_buffer = []
-        else:
-            self.trigger_data_captured += 1
-            if self.current_meas_range == MEAS_RANGE_LO:
-                sample_ua = adc_val * (ADC_REF / (ADC_GAIN * ADC_MAX * MEAS_RES_LO))
-            elif self.current_meas_range == MEAS_RANGE_MID:
-                sample_ua = adc_val * (ADC_REF / (ADC_GAIN*ADC_MAX*MEAS_RES_MID))
-            elif self.current_meas_range == MEAS_RANGE_HI:
-                sample_ua = adc_val * (ADC_REF / (ADC_GAIN*ADC_MAX*MEAS_RES_HI))
-            elif self.current_meas_range == MEAS_RANGE_INVALID:
-                self.log("Range INVALID")
-            elif self.current_meas_range == MEAS_RANGE_NONE:
-                self.log("Range not detected")
-            self.trigger_buffer.append(sample_ua)
-
-
-    def write_stuffed(self, cmd):
-        try:
-            s = []
-            s.append(STX)
-            for byte in cmd:
-                if byte == STX or byte == ETX or byte == ESC:
-                    s.append(ESC)
-                    s.append(byte ^ 0x20)
-                else:
-                    s.append(byte)
-            s.append(ETX)
-            try:
-                try:
-                    debug_print("rtt write initiated")
-                    self.nrfjprog.rtt_write(0, s, encoding=None)
-                    debug_print("rtt write finished")
-                    #time.sleep(1)
-                except Exception as e:
-                    debug_print("write failed, %s") %str(e)
-
-            except Exception as e:
-                print("Failed write")
-                raise
-        except Exception as e:
-            print ("Failed write stuffed")
-            raise(e)
-
-    def read_thread_start(self):
-        # Start thread for reading rtt.
-        self.read_thread = threading.Thread(target=self.t_read)
-        self.read_thread.setDaemon(True)
-        self.read_thread.start()
-
-    def handleBytes(self, byte):
-        # print('Handle byte: ' + str(byte))
-
-        if self.read_mode == MODE_RECV:
-            ''' Mode Receiving - Receiving data '''
-            if byte == ESC:
-                # print('escape received')
-                self.read_mode = MODE_ESC_RECV
-            elif byte == ETX:
-                # print('etx received')
-                self._stream_handler(self.data_buffer)
-                self.data_buffer[:] = []
-                self.read_mode = MODE_RECV
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Setting external regulator VDD to %d." % vdd)
+        # Setting voltages above or below these values can cause the emu connection to stall.
+        if (self.EXT_REG_MIN_MV > vdd) or (self.EXT_REG_MAX_MV < vdd):
+            raise PPKError("Invalid vdd given to set_external_reg_vdd: (%d)." % vdd)
+        target_vdd = vdd
+        while True:
+            if target_vdd > self._vdd:
+                next_vdd = self._vdd + 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
             else:
-                # print('append byte')
-                self.data_buffer.append(byte)
+                next_vdd = self._vdd - 100 if abs(target_vdd - self._vdd) > 100 else target_vdd
+            vdd_high_byte = next_vdd >> 8
+            vdd_low_byte = next_vdd & 0xFF
+            self._write_ppk_cmd([RTTCommand.REGULATOR_SET, vdd_high_byte, vdd_low_byte])
+            self._vdd = next_vdd
+            # A short delay between calls to _write_ppk_cmd improves stability.
+            if self._vdd == target_vdd:
+                break
+            else:
+                time.sleep(self.PPK_CMD_WRITE_DELAY)
 
-        elif self.read_mode == MODE_ESC_RECV:
-            ''' Mode Escape Received - Convert next byte '''
-            # print('escing byte')
-            self.data_buffer.append(byte ^ 0x20)
-            self.read_mode = MODE_RECV
+    def set_trigger_window(self, time_us):
+        """Set the trigger window. This is the dataset transferred
+        upon every trigger from the PPK.
+        """
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("Set trigger window to %dus." % time_us)
+        if (self.TRIG_WINDOW_MIN_US > time_us) or (self.TRIG_WINDOW_MAX_US < time_us):
+            raise PPKError("Invalid time_us given to set_trigger_window: (%d)." % time_us)
+        window = int(time_us / self.ADC_SAMPLING_TIME_US)
+        high = (window >> 8) & 0xFF
+        low = window & 0xFF
+        self._write_ppk_cmd([RTTCommand.TRIG_WINDOW_SET, high, low])
 
-    def t_read(self):
-        try:
-            while (True):
-                data = self.nrfjprog.rtt_read(0, 100, encoding=None)
-                if data != '':
-                    for byte in data:
-                        self.handleBytes(byte)
+    def measure_average(self, time_s, discard_jitter_count=500):
+        """Collect time_s worth of average measurements and return
+        the average along with the list of measurements.
+        """
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("measure_average(%d, %d)." % (time_s, discard_jitter_count))
+        samples_count = (time_s * self.AVERAGE_SAMPLES_PER_SECOND)
+        ppk_helper = PPKDataHelper()
+        self._start_average_measurement()
+        while True:
+            self._read_and_parse_ppk_data(ppk_helper)
+            collected_buffs = len(ppk_helper)
+            self._log("Collecting samples: %d" % collected_buffs, end='\r')
+            if samples_count <= collected_buffs:
+                break
+        self._log('')
+        self._stop_average_measurement()
+        self._flush_rtt()
+        # Only one (timestamp, avg_data) tuple is expected here.
+        ts, avg_buf = ppk_helper.get_average_buffs()[0]
+        timestamped_buf = [(ts + self.AVERAGE_TIME_US * i, avg_buf[i])
+                           for i in range(discard_jitter_count, len(avg_buf))]
+        return (self.favg(avg_buf[discard_jitter_count:]), timestamped_buf)
 
-        except Exception:
-            pass
-            self.alive = False
+    def measure_triggers(self, window_time_us, level_ua, count=1):
+        """Collect count trigger buffers."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("measure_triggers(%r, %r, %r)." % (window_time_us, level_ua, count))
+        self.set_trigger_window(window_time_us)
+        if count == 1:
+            self._set_single_trigger(level_ua)
+        else:
+            self._set_trigger(level_ua)
+        return self._measure_triggers(count)
+
+    def measure_external_triggers(self, window_time_us, count=1):
+        """Wait for the 'TRIG IN' pin before capturing trigger buffers."""
+        if not self._connected:
+            raise PPKError("Invalid operation: must connect first.")
+        self._log("measure_external_triggers(%r, %r)." % (window_time_us, count))
+        self.set_trigger_window(window_time_us)
+        self._enable_ext_trigger_in()
+        return self._measure_triggers(count)
+
+    def _measure_triggers(self, count=1):
+        """Wait until count trigger buffers are received."""
+        ppk_helper = PPKDataHelper()
+        samples_count = count * 2
+        while True:
+            self._read_and_parse_ppk_data(ppk_helper)
+            collected_buffs = len(ppk_helper)
+            self._log("Collecting trigger buffers: %d" % (collected_buffs/2), end='\r')
+            if samples_count <= collected_buffs:
+                break
+        self._log('')
+        if self._ext_trig_enabled:
+            self._disable_ext_trigger_in()
+        else:
+            self._stop_trigger()
+        self._flush_rtt()
+        result = []
+        for ts, trig_buf in ppk_helper.get_trigger_buffs(*self._resistors):
+            timestamped_buf = [(ts + self.ADC_SAMPLING_TIME_US * i, trig_buf[i])
+                               for i in range(0, len(trig_buf))]
+            result.append((self.favg(trig_buf), timestamped_buf))
+        return result
+
+    def _enable_ext_trigger_in(self):
+        """Enable the 'TRIG IN' external trigger.
+
+        The external trigger is used in place of the normal TRIG_SET
+        and TRIG_SINGLE_SET commands.
+        """
+        self._log("Enable 'TRIG IN' external trigger.")
+        if not self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = True
+
+    def _disable_ext_trigger_in(self):
+        """Disable the 'TRIG IN' external trigger."""
+        self._log("Disable 'TRIG IN' external trigger.")
+        if self._ext_trig_enabled:
+            self._write_ppk_cmd([RTTCommand.EXT_TRIG_IN_TOGGLE])
+            self._ext_trig_enabled = False
+
+    def _start_average_measurement(self):
+        """Start generating average current measurements."""
+        self._log("Starting average measurement.")
+        self._write_ppk_cmd([RTTCommand.AVERAGE_START])
+
+    def _stop_average_measurement(self):
+        """Stop generating average current measurements."""
+        self._log("Stopping average measurement.")
+        self._write_ppk_cmd([RTTCommand.AVERAGE_STOP])
+
+    def _set_trigger(self, level_ua):
+        """Set the trigger level.
+
+        The level_ua parameter is the current draw (in microamps) that
+        will activate the trigger. To convert from milliamps simply
+        multiply by 1000.
+        """
+        self._log("Set trigger to %duA." % level_ua)
+        high = (level_ua >> 16) & 0xFF
+        mid = (level_ua >> 8) & 0xFF
+        low = level_ua & 0xFF
+        self._write_ppk_cmd([RTTCommand.TRIG_SET, high, mid, low])
+
+    def _set_single_trigger(self, level_ua):
+        """Set the single trigger level.
+
+        The level_ua parameter is the current draw (in microamps) that
+        will activate the trigger. To convert from milliamps simply
+        multiply by 1000.
+        """
+        self._log("Set single trigger to %duA." % level_ua)
+        high = (level_ua >> 16) & 0xFF
+        mid = (level_ua >> 8) & 0xFF
+        low = level_ua & 0xFF
+        self._write_ppk_cmd([RTTCommand.TRIG_SINGLE_SET, high, mid, low])
+
+    def _stop_trigger(self):
+        """Disable trigger buffer generation."""
+        self._log("Stopping trigger.")
+        self._write_ppk_cmd([RTTCommand.TRIG_STOP])
+
+    def _write_ppk_cmd(self, byte_array):
+        """Adds escape characters to byte_array and then writes it to RTT."""
+        self.nrfjprog_api.rtt_write(self.RTT_CHANNEL_INDEX,
+                                    PPKDataHelper.encode(byte_array),
+                                    encoding=None)
+
+    def _read_and_parse_ppk_data(self, ppk_data_helper):
+        """Read bytes from the RTT channel and pass them to a PPKDataHelper.
+
+        Read [zero, RTT_READ_BUF_LEN] bytes from the RTT channel and use the
+        helper to decode them.
+        """
+        byte_array = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
+                                                self.RTT_READ_BUF_LEN,
+                                                encoding=None)
+        for byte in byte_array:
+            ppk_data_helper.decode(byte)
+
+    def _flush_rtt(self):
+        """Read and discard any available RTT bytes."""
+        while True:
+            flush_bytes = self.nrfjprog_api.rtt_read(self.RTT_CHANNEL_INDEX,
+                                                     self.RTT_READ_BUF_LEN,
+                                                     encoding=None)
+            if not flush_bytes:
+                break
+
+    def _log(self, logstring, **kwargs):
+        """Print lof information only when logprint was set to True in __ini__."""
+        if self.logprint:
+            print(logstring, **kwargs)
+
+    @staticmethod
+    def favg(float_seq):
+        """Return the average of a sequence of floats."""
+        f_sum = math.fsum(float_seq)
+        return f_sum / len(float_seq)
+
+    @staticmethod
+    def _parse_metadata(metadata_str):
+        """Use a Regular Expression to parse a metadata packet."""
+        metadata_fields = ("VERSION", "CAL", "R1", "R2", "R3", "BOARD_ID",
+                           "USER_R1", "USER_R2", "USER_R3", "VDD", "HI", "LO")
+        re_string = ('').join([
+            'VERSION\\s*([^\\s]+)\\s*CAL:\\s*(\\d+)\\s*',
+            '(?:R1:\\s*([\\d.]+)\\s*R2:\\s*([\\d.]+)\\s*R3:\\s*',
+            '([\\d.]+))?\\s*Board ID\\s*([0-9A-F]+)\\s*',
+            '(?:USER SET\\s*R1:\\s*([\\d.]+)\\s*R2:\\s*',
+            '([\\d.]+)\\s*R3:\\s*([\\d.]+))?\\s*',
+            'Refs\\s*VDD:\\s*(\\d+)\\s*HI:\\s*(\\d.+)\\s*LO:\\s*(\\d+)',
+        ])
+        result = re.split(re_string, metadata_str)[1:]
+        metadata = {metadata_fields[i]:result[i] for i in range(0, len(metadata_fields))}
+        return metadata
 
 
-    def measurement_data_callback(self, data, dtype):
-        if (dtype == self.DATA_TYPE_AVERAGE):
-            self.avg_buffer.append(data)
+class PPKDataHelper():
+    """Encodes and decodes PPK byte arrays.
 
-    def get_measurement_data(self, dtype):
-        if dtype == self.DATA_TYPE_AVERAGE:
-            return self.avg_buffer
-        if dtype == self.DATA_TYPE_TRIGGER:
-            return self.trigger_buffer
+    Encodes byte arrays via a class function. Decoding is a stateful
+    operation so an object must be instantiated. Decoded packets can
+    be retrieved as a list or iterated over.
+    """
+    STX_BYTE = 0x02
+    ETX_BYTE = 0x03
+    ESC_BYTE = 0x1F
 
-    def clear_measurement_data(self, dtype):
-        if dtype == self.DATA_TYPE_AVERAGE:
-            self.avg_buffer = []
-        if dtype == self.DATA_TYPE_TRIGGER:
-            self.trigger_buffer = []
+    MODE_RECV = 1
+    MODE_ESC_RECV = 2
+
+    AVERAGE_PKT_LEN = 4
+    TIMESTAMP_PKT_LEN = 5
+
+    # Trigger buffer values consist of pairs of two bytes that get packed
+    # into a u16 with the top two bits encoding the "measurement range".
+    # The measurement range is defined by the R1, R2, R3 resistors or
+    # their USER replacements.
+    MEAS_RANGE_POS = 14
+    MEAS_RANGE_MSK = (3 << 14)
+    MEAS_RANGE_LO = 1
+    MEAS_RANGE_MID = 2
+    MEAS_RANGE_HI = 3
+
+    MEAS_ADC_POS = 0
+    MEAS_ADC_MSK = 0x3FFF
+
+    ADC_REF = 0.6
+    ADC_GAIN = 4.0
+    ADC_MAX = 8192.0
+    ADC_MULT = (ADC_REF / (ADC_GAIN * ADC_MAX))
+
+    def __init__(self):
+        """Creates an empty object for parsing bytes."""
+        self._read_mode = self.MODE_RECV
+        self._buf = []
+        self._decoded = []
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self._decoded:
+            raise StopIteration
+        else:
+            return self._decoded.pop(0)
+
+    def __len__(self):
+        return len(self._decoded)
+
+    def decode(self, byte):
+        """Decode a single byte from the PPK.
+
+        Return True if the byte completes the decoding of a packet.
+        """
+        if self.MODE_RECV == self._read_mode:
+            if self.ESC_BYTE == byte:
+                self._read_mode = self.MODE_ESC_RECV
+            elif self.ETX_BYTE == byte:
+                self._decoded.append(self._buf.copy())
+                self._buf.clear()
+                self._read_mode = self.MODE_RECV
+                return True
+            else:
+                self._buf.append(byte)
+        elif self.MODE_ESC_RECV == self._read_mode:
+            self._buf.append(byte ^ 0x20)
+            self._read_mode = self.MODE_RECV
+        return False
+
+    def get_decoded(self):
+        """Return the list of decoded packets."""
+        return self._decoded
+
+    def get_average_buffs(self):
+        """Return a list of parsed (timestamp, avg_data) tuples.
+
+        Every series of average measurements starts with a timestamp.
+        """
+        result = []
+        ts = None
+        buf = None
+        for i in range(0, len(self._decoded)):
+            if self.is_timestamp_pkt(self._decoded[i]):
+                if ts and buf:
+                    result.append((ts, buf[:]))
+                ts = self.unpack_timestamp(self._decoded[i])
+                buf = []
+            elif self.is_average_pkt(self._decoded[i]):
+                if ts:
+                    buf.append(self.unpack_average(self._decoded[i]))
+        if ts and buf:
+            result.append((ts, buf[:]))
+        return result
+
+    def get_trigger_buffs(self, meas_res_lo, meas_res_mid, meas_res_hi):
+        """Return a list of parsed (timestamp, trig_data) tuples.
+
+        Every buffer of trigger data is preceded by a timestamp.
+        """
+        result = []
+        ts = None
+        for i in range(0, len(self._decoded)):
+            if self.is_timestamp_pkt(self._decoded[i]):
+                ts = self.unpack_timestamp(self._decoded[i])
+            elif self.is_trigger_pkt(self._decoded[i]):
+                if ts:
+                    buf = self._decoded[i]
+                    u16s = [self.make_u16(buf[x], buf[x+1]) for x in range(0, len(buf), 2)]
+                    scaled = [self.scale_trigger_value(b, meas_res_lo, meas_res_mid, meas_res_hi)
+                              for b in u16s]
+                    result.append((ts, scaled))
+                    ts = None
+            else:
+                ts = None
+        return result
+
+    def reset(self):
+        """Clear the state of the object."""
+        self._read_mode = self.MODE_RECV
+        self._buf = []
+        self._decoded = []
+
+    @classmethod
+    def encode(cls, byte_array):
+        """Return a byte array with added PPK escape characters."""
+        buf = []
+        buf.append(cls.STX_BYTE)
+        for byte in byte_array:
+            if byte in (cls.STX_BYTE, cls.ETX_BYTE, cls.ESC_BYTE):
+                buf.append(cls.ESC_BYTE)
+                buf.append(byte ^ 0x20)
+            else:
+                buf.append(byte)
+        buf.append(cls.ETX_BYTE)
+        return buf
+
+    @classmethod
+    def is_average_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain average data."""
+        return cls.AVERAGE_PKT_LEN == len(byte_array)
+
+    @classmethod
+    def is_timestamp_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain timestamp data."""
+        return cls.TIMESTAMP_PKT_LEN == len(byte_array)
+
+    @classmethod
+    def is_trigger_pkt(cls, byte_array):
+        """Return True if byte_array appears to contain trigger data."""
+        return not cls.is_average_pkt(byte_array) and not cls.is_timestamp_pkt(byte_array)
+
+    @classmethod
+    def scale_trigger_value(cls, u16_value, meas_res_lo, meas_res_mid, meas_res_hi):
+        """Decode a u16's measurement range and then scale it."""
+        meas_range = (u16_value & cls.MEAS_RANGE_MSK) >> cls.MEAS_RANGE_POS
+        divisor = None
+        if meas_range == cls.MEAS_RANGE_LO:
+            divisor = meas_res_lo
+        elif meas_range == cls.MEAS_RANGE_MID:
+            divisor = meas_res_mid
+        elif meas_range == cls.MEAS_RANGE_HI:
+            divisor = meas_res_hi
+        else:
+            raise PPKError("Invalid measurement range in trigger buffer: %d" % meas_range)
+        return (u16_value & cls.MEAS_ADC_MSK) * (cls.ADC_MULT / divisor) * 1e6
+
+    @staticmethod
+    def unpack_average(byte_array):
+        """Decode the four bytes in byte_array into a float."""
+        return struct.unpack('<f', bytearray(byte_array))[0]
+
+    @staticmethod
+    def unpack_timestamp(byte_array):
+        """Decode the first four bytes in byte_array and return a u32."""
+        return struct.unpack('<I', bytearray(byte_array[:4]))[0]
+
+    @staticmethod
+    def make_u16(low_byte, high_byte):
+        """Combine two bytes into a u16."""
+        return (high_byte << 8) + low_byte
